@@ -48,3 +48,11 @@ export function lightenHex(hex: string, amount: number): string {
   const b = Math.round(rgb[2] + (255 - rgb[2]) * t)
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
 }
+
+/** `#rrggbb` → `rgba(r,g,b,a)` for accent-soft tokens. */
+export function hexToRgba(hex: string, alpha: number): string {
+  const rgb = parseHexColor(hex)
+  if (!rgb) return hex
+  const a = Math.max(0, Math.min(1, alpha))
+  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`
+}

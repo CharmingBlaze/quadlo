@@ -4,60 +4,102 @@ import type { ViewType } from '../store/appStore'
 import type { OrthoViewType } from '../primitives/viewAxes'
 import { orthoViewFromLegacy } from '../primitives/viewAxes'
 import { useTheme } from '../theme/useTheme'
+import { SCENE_GRID_CELL } from '../scene/units'
 
 interface ViewportGridProps {
   view: ViewType
   depth?: number
 }
 
-import { SCENE_GRID_CELL } from '../scene/units'
+const BASE_CELL = SCENE_GRID_CELL
+const BASE_SECTION = BASE_CELL * 10
 
-const CELL = SCENE_GRID_CELL
-const SECTION = 40
+/** Muted DCC axis colors — red/green/blue without neon saturation. */
+const AXIS_COLORS = {
+  x: '#b85a54',
+  y: '#6a9a58',
+  z: '#5a82b8',
+} as const
 
-/** Soft grid fade — keep below camera.far so the horizon softens instead of hard-clipping. */
 const GRID_STYLE = {
-  cellSize: CELL,
-  sectionSize: SECTION,
-  cellThickness: 0.5,
-  sectionThickness: 1,
-  fadeDistance: 1400,
-  fadeStrength: 1.05,
+  cellThickness: 0.55,
+  sectionThickness: 1.05,
+  /** Matches the tuned perspective floor fade (1400 × 0.85). */
+  fadeDistance: 1190,
+  fadeStrength: 1.1,
   infiniteGrid: true as const,
 }
 
-const AXIS_LEN = SECTION * 4
+const AXIS_LEN = BASE_SECTION * 6
+
+const AXIS_LINE_STYLE = {
+  lineWidth: 1.2,
+  opacity: 0.65,
+} as const
 
 function SharedFloorGrid({
   position = [0, -0.02, 0] as [number, number, number],
   rotation = [0, 0, 0] as [number, number, number],
-  fadeDistance = GRID_STYLE.fadeDistance,
-  fadeStrength = GRID_STYLE.fadeStrength,
-  cellThickness = GRID_STYLE.cellThickness,
-  sectionThickness = GRID_STYLE.sectionThickness,
 }: {
   position?: [number, number, number]
   rotation?: [number, number, number]
-  fadeDistance?: number
-  fadeStrength?: number
-  cellThickness?: number
-  sectionThickness?: number
 }) {
   const { gridCell, gridSection } = useTheme()
   return (
     <Grid
-      cellSize={GRID_STYLE.cellSize}
-      sectionSize={GRID_STYLE.sectionSize}
+      cellSize={BASE_CELL}
+      sectionSize={BASE_SECTION}
       infiniteGrid={GRID_STYLE.infiniteGrid}
       cellColor={gridCell}
       sectionColor={gridSection}
-      cellThickness={cellThickness}
-      sectionThickness={sectionThickness}
-      fadeDistance={fadeDistance}
-      fadeStrength={fadeStrength}
+      cellThickness={GRID_STYLE.cellThickness}
+      sectionThickness={GRID_STYLE.sectionThickness}
+      fadeDistance={GRID_STYLE.fadeDistance}
+      fadeStrength={GRID_STYLE.fadeStrength}
       position={position}
       rotation={rotation}
     />
+  )
+}
+
+function OriginMarker() {
+  return (
+    <group raycast={() => null}>
+      <mesh position={[0, 0.04, 0]} renderOrder={-1}>
+        <sphereGeometry args={[0.55, 10, 10]} />
+        <meshBasicMaterial color="#e8e8e8" transparent opacity={0.85} depthWrite={false} />
+      </mesh>
+      <Line
+        points={[
+          [-0.9, 0, 0],
+          [0.9, 0, 0],
+        ]}
+        color={AXIS_COLORS.x}
+        lineWidth={AXIS_LINE_STYLE.lineWidth}
+        transparent
+        opacity={AXIS_LINE_STYLE.opacity}
+      />
+      <Line
+        points={[
+          [0, -0.9, 0],
+          [0, 0.9, 0],
+        ]}
+        color={AXIS_COLORS.y}
+        lineWidth={AXIS_LINE_STYLE.lineWidth}
+        transparent
+        opacity={AXIS_LINE_STYLE.opacity}
+      />
+      <Line
+        points={[
+          [0, 0, -0.9],
+          [0, 0, 0.9],
+        ]}
+        color={AXIS_COLORS.z}
+        lineWidth={AXIS_LINE_STYLE.lineWidth}
+        transparent
+        opacity={AXIS_LINE_STYLE.opacity}
+      />
+    </group>
   )
 }
 
@@ -70,13 +112,30 @@ function AxisLines({
   secondary: [[number, number, number], [number, number, number]]
   tertiary?: [[number, number, number], [number, number, number]]
 }) {
-  const { axisX, axisY, axisZ } = useTheme()
   return (
     <>
-      <Line points={primary} color={axisX} lineWidth={1.1} transparent opacity={0.45} />
-      <Line points={secondary} color={axisY} lineWidth={1.1} transparent opacity={0.45} />
+      <Line
+        points={primary}
+        color={AXIS_COLORS.x}
+        lineWidth={AXIS_LINE_STYLE.lineWidth}
+        transparent
+        opacity={AXIS_LINE_STYLE.opacity}
+      />
+      <Line
+        points={secondary}
+        color={AXIS_COLORS.y}
+        lineWidth={AXIS_LINE_STYLE.lineWidth}
+        transparent
+        opacity={AXIS_LINE_STYLE.opacity}
+      />
       {tertiary && (
-        <Line points={tertiary} color={axisZ} lineWidth={1.1} transparent opacity={0.45} />
+        <Line
+          points={tertiary}
+          color={AXIS_COLORS.z}
+          lineWidth={AXIS_LINE_STYLE.lineWidth}
+          transparent
+          opacity={AXIS_LINE_STYLE.opacity}
+        />
       )}
     </>
   )
@@ -123,13 +182,9 @@ function FlatWorkplaneGrid({
 
   return (
     <group>
-      <SharedFloorGrid
-        position={layout.position}
-        rotation={layout.rotation}
-        fadeDistance={1200}
-        fadeStrength={1.1}
-      />
+      <SharedFloorGrid position={layout.position} rotation={layout.rotation} />
       <AxisLines primary={layout.primary} secondary={layout.secondary} />
+      <OriginMarker />
     </group>
   )
 }
@@ -152,6 +207,7 @@ function WorldGrid3D() {
           [0, 0, AXIS_LEN],
         ]}
       />
+      <OriginMarker />
     </group>
   )
 }
@@ -166,7 +222,26 @@ function gridForOrtho(view: OrthoViewType, depth: number) {
       return <FlatWorkplaneGrid plane="right" depth={depth} />
     case 'top':
     case 'bottom':
-      return <WorldGrid3D />
+      return (
+        <group>
+          <SharedFloorGrid />
+          <AxisLines
+            primary={[
+              [0, 0, 0],
+              [AXIS_LEN, 0, 0],
+            ]}
+            secondary={[
+              [0, 0, 0],
+              [0, 0, AXIS_LEN],
+            ]}
+            tertiary={[
+              [0, 0, 0],
+              [0, AXIS_LEN, 0],
+            ]}
+          />
+          <OriginMarker />
+        </group>
+      )
   }
 }
 

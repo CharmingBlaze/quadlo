@@ -339,7 +339,7 @@ function MeshMaterial({
       return (
         <meshStandardMaterial
           {...common}
-          roughness={useTexture ? 1 : 0.85}
+          roughness={useTexture ? 1 : 0.55}
           metalness={0}
           emissive={emissive}
           emissiveIntensity={emissiveIntensity}
@@ -369,6 +369,8 @@ export const MeshRenderer = memo(function MeshRenderer({
   } = useTheme()
   const meshRef = useRef<THREE.Mesh>(null)
   const invalidate = useThree((s) => s.invalidate)
+  const shadowsEnabled = useAppStore((s) => s.viewportShadowsEnabled)
+  const castReceiveShadow = shadowsEnabled && displayMode !== 'unlit'
   const uvPatchRef = useRef({
     topology: null as SceneObject | null,
     flatShading: true,
@@ -709,6 +711,13 @@ export const MeshRenderer = memo(function MeshRenderer({
   }, [objectSelectionOutline, object.positions])
 
   useEffect(() => () => selectionOutlineGeometry?.dispose(), [selectionOutlineGeometry])
+
+  useEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh) return
+    mesh.castShadow = castReceiveShadow
+    mesh.receiveShadow = castReceiveShadow
+  }, [castReceiveShadow])
 
   // Overlay documents paint over the object's existing color/material. A
   // deliberately cleared replacement document uses its own alpha instead.

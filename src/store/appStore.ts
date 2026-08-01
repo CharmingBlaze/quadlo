@@ -145,6 +145,11 @@ import {
   imageDropInitialState,
   type ImageDropSlice,
 } from './imageDropSlice'
+import {
+  createGizmoSlice,
+  gizmoInitialState,
+  type GizmoSlice,
+} from './gizmoSlice'
 
 const textureLoadGeneration = new Map<string, number>()
 
@@ -170,6 +175,7 @@ export type {
 
 export type { SymmetryAxis } from '../symmetry/symmetry'
 export type { ImageDropMode, ReferenceImage, BillboardImage } from './imageDropSlice'
+export type { GizmoSpace } from './gizmoSlice'
 export type { ThemeId } from '../theme/themes'
 export type {
   ViewType,
@@ -190,7 +196,7 @@ export interface HistoryEntry {
 // Re-export for consumers
 export type { SceneSnapshot } from '../history/sceneHistory'
 
-export interface AppState extends ViewportSlice, HistorySlice, SelectionSlice, CadMeshToolsSlice, StrokeSlice, VectorToolsSlice, ToolActivationSlice, SceneObjectsSlice, MeshEditSlice, SceneSettingsSlice, UvEditorSlice, ProjectIoSlice, ImageDropSlice {
+export interface AppState extends ViewportSlice, HistorySlice, SelectionSlice, CadMeshToolsSlice, StrokeSlice, VectorToolsSlice, ToolActivationSlice, SceneObjectsSlice, MeshEditSlice, SceneSettingsSlice, UvEditorSlice, ProjectIoSlice, ImageDropSlice, GizmoSlice {
   materialEditorOpen: boolean
   materialEditorPanel: FloatingPanelState
   materialEditorColor: Rgba4
@@ -637,6 +643,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   ...createMeshEditSlice<AppState>(set, get),
   ...sceneSettingsInitialState,
   ...createSceneSettingsSlice<AppState>(set, get),
+  ...gizmoInitialState,
+  ...createGizmoSlice<AppState>(set),
 
   ...imageDropInitialState,
   ...createImageDropSlice<AppState>(set, get, {

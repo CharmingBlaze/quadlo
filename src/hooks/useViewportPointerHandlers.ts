@@ -4,10 +4,12 @@ import type { Camera } from 'three'
 import { useShallow } from 'zustand/react/shallow'
 import { pushViewportSharedInteraction, popViewportSharedInteraction } from '../rendering/viewportFrameLoop'
 import type { ViewportSlotIndex } from '../scene/viewTypes'
+import { isOrthoView, normalizeViewType, type OrthoViewType } from '../scene/viewTypes'
+import { canExtrudeHeightInView } from '../primitives/viewAxes'
 
 import { useAppStore } from '../store/appStore'
 import type { ViewType } from '../scene/viewTypes'
-import type { PolyDrawPointSnap } from '../store/appStore'
+import type { PolyDrawPointSnap, ActiveTool } from '../store/appStore'
 import type { PixelShapeTool } from '../pixel/uvPaint'
 import {
   buildCameraDragPlane,
@@ -70,8 +72,6 @@ import {
   normalizedViewportPoint,
   worldPointFromViewDrop,
 } from '../images/imageDropPlacement'
-import { PERSPECTIVE_PRIMITIVE_HEIGHT_DRAG_SCALE } from '../primitives/primitiveBoxMath'
-import type { ActiveTool } from '../store/appStore'
 import {
   DRAW_TOOLS,
   DEFORM_TOOLS,
@@ -81,14 +81,25 @@ import {
   beginCameraPlaneDrag,
   canDragComponentSelection,
   canPickComponentSelection,
+  clientToHeightOnVerticalPlane,
   dragDeltaFromPointer,
-  isBoxSelectInteraction,
+  shouldCtrlLmbBoxSelect,
+  MARQUEE_BUTTONS_MASK,
   isComponentSelectionMode,
   isHitInMeshSelection,
   pickPixelOnTexturedMesh,
+  isViewportLmbToolOwner,
+  shouldDeferViewportClickToOrbit,
+  VIEWPORT_CLICK_DRAG_THRESHOLD_PX,
   type ComponentDragState,
   type ObjectDragState,
 } from '../viewport/viewportInteractionUtils'
+import {
+  requestCameraNavigationReset,
+  setViewportLeftButtonBlocked,
+  clearViewportLeftButtonBlocked,
+  suppressSyntheticOrbitEvents,
+} from '../viewport/viewportOrbitDeferral'
 
 export interface UseViewportPointerHandlersParams {
   view: ViewType
@@ -121,6 +132,11 @@ export function useViewportPointerHandlers({
     popViewportSharedInteraction(slotIndex)
   }, [slotIndex])
 
+  const claimLmbForViewportDrag = useCallback((e: React.PointerEvent) => {
+    setViewportLeftButtonBlocked(true)
+    requestCameraNavigationReset(slotIndex, e.nativeEvent)
+  }, [slotIndex])
+
   const lastSculptRef = useRef(0)
   const sculptGestureObjectRef = useRef<string | null>(null)
   const marqueeStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null)
@@ -145,14 +161,21 @@ export function useViewportPointerHandlers({
   const vectorGestureViewRef = useRef<ViewType | null>(null)
   const strokeGestureViewRef = useRef<ViewType | null>(null)
   const primitiveGestureViewRef = useRef<ViewType | null>(null)
-  const perspectiveHeightDragRef = useRef<{ startY: number; startHeight: number } | null>(null)
-  const perspectiveHeightClickRef = useRef({ t: 0, x: 0, y: 0 })
+  const perspectiveHeightDraggingRef = useRef(false)
   const bendClickRef = useRef({ t: 0, x: 0, y: 0 })
   const knifeClickRef = useRef({ t: 0, x: 0, y: 0 })
   const selectDragRef = useRef<ObjectDragState | null>(null)
   const componentDragRef = useRef<ComponentDragState | null>(null)
   const hoverPickRafRef = useRef<number | null>(null)
   const pendingHoverRef = useRef<{ x: number; y: number } | null>(null)
+  const lmbClickPendingRef = useRef<{
+    x: number
+    y: number
+    shiftKey: boolean
+    altKey: boolean
+    kind: 'object-select' | 'object-transform' | 'component-pick' | 'empty'
+    pickedObjectId: string | null
+  } | null>(null)
   const [marqueeRect, setMarqueeRect] = useState<{
     x0: number
     y0: number
@@ -447,10 +470,37 @@ export function useViewportPointerHandlers({
     [view, defaultDepth, beginPerspectiveStrokeFrame]
   )
 
-  const perspectivePrimitiveScrollHeight =
+  const resolvePerspectivePrimitiveHeight = useCallback(
+    (clientX: number, clientY: number): number | null => {
+      const rect = containerRef.current?.getBoundingClientRect()
+      const camera = cameraRef.current
+      const draft = useAppStore.getState().primitiveBoxDraft
+      if (!rect || !camera || !draft) return null
+      return clientToHeightOnVerticalPlane(
+        clientX,
+        clientY,
+        rect,
+        camera,
+        draft.baseBoxLocked,
+        draft.heightAxis,
+        useAppStore.getState().polyDrawSnapGrid
+      )
+    },
+    []
+  )
+
+  const applyPerspectivePrimitiveHeight = useCallback(
+    (clientX: number, clientY: number) => {
+      const height = resolvePerspectivePrimitiveHeight(clientX, clientY)
+      if (height != null) setPrimitiveBoxScrollHeight(height)
+    },
+    [resolvePerspectivePrimitiveHeight, setPrimitiveBoxScrollHeight]
+  )
+
+  const perspectivePrimitiveHeightAdjust =
     view === 'perspective' &&
     activeTool === 'primitive-box' &&
-    primitiveBoxDraft?.phase === 'scrollHeight' &&
+    primitiveBoxDraft?.phase === 'drawingHeight' &&
     primitiveBoxDraft.baseView === 'perspective'
 
   const roundedBoxParamWheel =
@@ -653,15 +703,17 @@ export function useViewportPointerHandlers({
           dragPlane: camDrag.dragPlane,
           moved: false,
         }
+        claimLmbForViewportDrag(e)
         return true
       }
 
       const pt = getPlanePoint(e)
       if (!pt) return false
       componentDragRef.current = { view, basePositions, startPlane: pt, moved: false }
+      claimLmbForViewportDrag(e)
       return true
     },
-    [view, getPlanePoint]
+    [view, getPlanePoint, claimLmbForViewportDrag]
   )
 
   const tryBeginMeshSelectionDrag = useCallback(
@@ -709,15 +761,17 @@ export function useViewportPointerHandlers({
           dragPlane: camDrag.dragPlane,
           moved: false,
         }
+        claimLmbForViewportDrag(e)
         return true
       }
 
       const pt = getPlanePoint(e)
       if (!pt) return false
       selectDragRef.current = { view, baseTransforms, startPlane: pt, moved: false }
+      claimLmbForViewportDrag(e)
       return true
     },
-    [view, getPlanePoint]
+    [view, getPlanePoint, claimLmbForViewportDrag]
   )
 
   const tryBeginSelectionObjectDrag = useCallback(
@@ -752,6 +806,7 @@ export function useViewportPointerHandlers({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      if (suppressSyntheticOrbitEvents) return
       const store = useAppStore.getState()
       if (store.meshModal || store.objectTransformModal) return
 
@@ -804,6 +859,134 @@ export function useViewportPointerHandlers({
         }
       }
 
+      // Ctrl/Cmd+LMB box-select marquee — takes priority over Ctrl+LMB pan and orbit deferral.
+      if (
+        e.button === 0 &&
+        (e.ctrlKey || e.metaKey) &&
+        shouldCtrlLmbBoxSelect(selectionMode, activeTool, store.viewportStickyNav)
+      ) {
+        e.preventDefault()
+        e.stopPropagation()
+        onActivate()
+        beginPointerInteraction()
+        e.currentTarget.setPointerCapture(e.pointerId)
+        boxSelectPendingRef.current = {
+          x: e.clientX,
+          y: e.clientY,
+          additive: e.shiftKey,
+        }
+        return
+      }
+
+      if (
+        e.button === 0 &&
+        !isViewportLmbToolOwner(store.activeTool) &&
+        shouldDeferViewportClickToOrbit(
+          view,
+          store.activeTool,
+          selectionMode,
+          e.button,
+          e.ctrlKey || e.metaKey
+        )
+      ) {
+        onActivate()
+        const deferRect = containerRef.current?.getBoundingClientRect()
+        const deferCamera = cameraRef.current
+        if (!deferRect || !deferCamera) return
+
+        const pickedObjectId = pickObjectAt(
+          e.clientX,
+          e.clientY,
+          deferRect,
+          deferCamera,
+          slotIndex
+        )
+        const isObjectSelectTool =
+          selectionMode === 'object' &&
+          (activeTool === 'select-object' || activeTool === 'smart')
+        const isObjectMoveTool = selectionMode === 'object' && activeTool === 'move'
+
+        const pendingBase = {
+          x: e.clientX,
+          y: e.clientY,
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          pickedObjectId,
+        }
+
+        // LMB on object (select/move): block camera immediately and arm free-drag.
+        if (pickedObjectId && !e.shiftKey && (isObjectSelectTool || isObjectMoveTool)) {
+          beginPointerInteraction()
+          e.currentTarget.setPointerCapture(e.pointerId)
+          resolveObjectClickSelection(pickedObjectId, false)
+          tryBeginSelectionObjectDrag(e)
+          lmbClickPendingRef.current = {
+            ...pendingBase,
+            kind: isObjectMoveTool ? 'object-transform' : 'object-select',
+          }
+          return
+        }
+
+        if (isComponentSelectionMode(selectionMode) && canPickComponentSelection(activeTool)) {
+          deferCamera.updateMatrixWorld()
+          if (
+            'updateProjectionMatrix' in deferCamera &&
+            typeof deferCamera.updateProjectionMatrix === 'function'
+          ) {
+            deferCamera.updateProjectionMatrix()
+          }
+          const hit = pickMeshComponent(
+            selectionMode,
+            e.clientX,
+            e.clientY,
+            deferRect,
+            deferCamera,
+            store.objects,
+            store.meshSelection?.objectId ?? selectedObjectId,
+            { cullBackVertices: !viewportXRay }
+          )
+          const hasComponent =
+            hit &&
+            (hit.vertex !== undefined || hit.edge !== undefined || hit.face !== undefined)
+          if (hasComponent && hit && !e.shiftKey) {
+            const obj = store.objects.find((o) => o.id === hit.objectId)
+            const sel = store.meshSelection
+            const hitSelected =
+              obj &&
+              sel &&
+              selectionHasComponents(sel) &&
+              isHitInMeshSelection(hit, sel, selectionMode, obj)
+            if (
+              canDragComponentSelection(activeTool) &&
+              hitSelected &&
+              obj &&
+              sel &&
+              tryBeginMeshSelectionDrag(e, sel, obj)
+            ) {
+              beginPointerInteraction()
+              e.currentTarget.setPointerCapture(e.pointerId)
+              lmbClickPendingRef.current = { ...pendingBase, kind: 'component-pick' }
+              return
+            }
+          }
+          lmbClickPendingRef.current = { ...pendingBase, kind: 'component-pick' }
+          return
+        }
+
+        // Empty space (or shift-modified pick): camera keeps default orbit/pan.
+        lmbClickPendingRef.current = {
+          ...pendingBase,
+          kind: pickedObjectId
+            ? isObjectMoveTool
+              ? 'object-transform'
+              : isObjectSelectTool
+                ? 'object-select'
+                : 'empty'
+            : 'empty',
+        }
+        return
+      }
+
       if (e.button === 0) beginPointerInteraction()
       if (
         e.button === 2 &&
@@ -819,7 +1002,7 @@ export function useViewportPointerHandlers({
         e.button === 1 &&
         store.activeTool === 'primitive-box' &&
         view === 'perspective' &&
-        store.primitiveBoxDraft?.phase === 'scrollHeight' &&
+        store.primitiveBoxDraft?.phase === 'drawingHeight' &&
         store.primitiveBoxDraft.baseView === 'perspective'
       ) {
         e.preventDefault()
@@ -829,7 +1012,7 @@ export function useViewportPointerHandlers({
       }
 
       if (e.button === 1) return
-      if (view === 'perspective' && e.button === 2) return
+
       onActivate()
 
       const rect = containerRef.current?.getBoundingClientRect()
@@ -918,26 +1101,65 @@ export function useViewportPointerHandlers({
         return
       }
 
-      if (
-        e.button === 0 &&
-        e.ctrlKey &&
-        !e.altKey &&
-        rect &&
-        camera &&
-        isBoxSelectInteraction(selectionMode, activeTool)
-      ) {
-        e.currentTarget.setPointerCapture(e.pointerId)
-        marqueeStartRef.current = {
-          x: e.clientX,
-          y: e.clientY,
-          additive: e.shiftKey,
+      // CAD primitive box — handle before object/component selection so LMB stays on the tool.
+      if (activeTool === 'primitive-box' && e.button === 0) {
+        if (view === 'perspective') {
+          const draft = useAppStore.getState().primitiveBoxDraft
+          const groundY = draft?.groundY ?? defaultDepth
+
+          if (draft?.phase === 'drawingHeight' && draft.baseView === 'perspective') {
+            e.currentTarget.setPointerCapture(e.pointerId)
+            e.preventDefault()
+            e.stopPropagation()
+            beginPointerInteraction()
+            perspectiveHeightDraggingRef.current = true
+            applyPerspectivePrimitiveHeight(e.clientX, e.clientY)
+            return
+          }
+
+          const ground = getGroundPoint(e.clientX, e.clientY, groundY)
+          if (!ground) return
+          e.currentTarget.setPointerCapture(e.pointerId)
+          e.preventDefault()
+          e.stopPropagation()
+          primitiveGestureViewRef.current = view
+          primitiveBoxPointerDown({ x: 0, y: 0 }, view, e.shiftKey, ground)
+          return
         }
-        setMarqueeRect({
-          x0: e.clientX,
-          y0: e.clientY,
-          x1: e.clientX,
-          y1: e.clientY,
-        })
+
+        const draft = useAppStore.getState().primitiveBoxDraft
+        const orthoView: OrthoViewType | null = isOrthoView(view)
+          ? (normalizeViewType(view) as OrthoViewType)
+          : null
+        const baseOrtho: OrthoViewType | null =
+          draft && isOrthoView(draft.baseView)
+            ? (normalizeViewType(draft.baseView) as OrthoViewType)
+            : null
+        // Height extrude must happen in a completing ortho. Do not capture LMB in
+        // the footprint view or the gesture swallows clicks and the flow stalls.
+        if (draft?.phase === 'drawingHeight' && baseOrtho && orthoView === baseOrtho) {
+          e.preventDefault()
+          e.stopPropagation()
+          return
+        }
+        if (
+          draft?.phase === 'drawingHeight' &&
+          baseOrtho &&
+          orthoView &&
+          !canExtrudeHeightInView(baseOrtho, orthoView, draft.heightAxis)
+        ) {
+          e.preventDefault()
+          e.stopPropagation()
+          return
+        }
+
+        const pt = getPlanePoint(e)
+        if (!pt) return
+        e.currentTarget.setPointerCapture(e.pointerId)
+        e.preventDefault()
+        e.stopPropagation()
+        primitiveGestureViewRef.current = view
+        primitiveBoxPointerDown(pt, view, e.shiftKey)
         return
       }
 
@@ -949,175 +1171,7 @@ export function useViewportPointerHandlers({
         }
       }
 
-      if (
-        selectionMode === 'object' &&
-        TRANSFORM_GIZMO_TOOLS.includes(activeTool) &&
-        e.button === 0 &&
-        rect &&
-        camera
-      ) {
-        const picked = pickObjectAt(e.clientX, e.clientY, rect, camera, slotIndex)
-        if (picked) {
-          const canDrag = resolveObjectClickSelection(picked, e.shiftKey)
-          if (canDrag && activeTool === 'move' && !e.shiftKey) {
-            if (tryBeginSelectionObjectDrag(e)) {
-              e.currentTarget.setPointerCapture(e.pointerId)
-            }
-          }
-        } else if (!e.shiftKey) {
-          selectObject(null)
-          selectBillboardImage(null)
-          selectReferenceImage(null)
-        }
-        return
-      }
-
-      if (isComponentSelectionMode(selectionMode) && e.button === 0 && rect && camera) {
-        const store = useAppStore.getState()
-
-        if (canPickComponentSelection(activeTool)) {
-          camera.updateMatrixWorld()
-          if (
-            'updateProjectionMatrix' in camera &&
-            typeof camera.updateProjectionMatrix === 'function'
-          ) {
-            camera.updateProjectionMatrix()
-          }
-
-          const hit = pickMeshComponent(
-            selectionMode,
-            e.clientX,
-            e.clientY,
-            rect,
-            camera,
-            objects,
-            store.meshSelection?.objectId ?? selectedObjectId,
-            { cullBackVertices: !viewportXRay }
-          )
-
-          const hasComponent =
-            hit &&
-            (hit.vertex !== undefined || hit.edge !== undefined || hit.face !== undefined)
-
-          if (hasComponent && hit) {
-            const obj = store.objects.find((o) => o.id === hit.objectId)
-            const sel = store.meshSelection
-            const hitSelected =
-              obj &&
-              sel &&
-              selectionHasComponents(sel) &&
-              isHitInMeshSelection(hit, sel, selectionMode, obj)
-
-            if (
-              canDragComponentSelection(activeTool) &&
-              hitSelected &&
-              !e.shiftKey &&
-              obj &&
-              tryBeginMeshSelectionDrag(e, sel, obj)
-            ) {
-              e.currentTarget.setPointerCapture(e.pointerId)
-              return
-            }
-
-            applyMeshPick(hit, e.shiftKey)
-
-            // Extrude is deliberately separate from direct face movement. A face
-            // click selects the complete logical face region, then starts the
-            // cancel-safe modal extrusion from the exact pointer location.
-            if (
-              activeTool === 'extrude' &&
-              selectionMode === 'face' &&
-              hit.face !== undefined &&
-              !e.shiftKey
-            ) {
-              beginMeshModal('extrude', e.clientX, e.clientY, view)
-              return
-            }
-
-            if (
-              viewportDisplayMode === 'normals' &&
-              e.altKey &&
-              !e.shiftKey &&
-              selectionMode === 'face' &&
-              hit.face !== undefined
-            ) {
-              flipFaceNormal(hit.objectId, hit.face)
-              return
-            }
-
-            // Free-drag after pick only for select/move; rotate/scale use the gizmo.
-            if (!e.shiftKey && obj && canDragComponentSelection(activeTool)) {
-              const selAfter = useAppStore.getState().meshSelection
-              if (
-                selAfter &&
-                selectionHasComponents(selAfter) &&
-                tryBeginMeshSelectionDrag(e, selAfter, obj)
-              ) {
-                e.currentTarget.setPointerCapture(e.pointerId)
-              }
-            }
-          } else {
-            const sel = store.meshSelection
-            const pickedObjectId = pickObjectAt(e.clientX, e.clientY, rect, camera, slotIndex)
-            const obj =
-              sel && selectionHasComponents(sel)
-                ? store.objects.find((o) => o.id === sel.objectId)
-                : null
-
-            if (
-              !e.shiftKey &&
-              canDragComponentSelection(activeTool) &&
-              sel &&
-              obj &&
-              pickedObjectId === sel.objectId &&
-              tryBeginMeshSelectionDrag(e, sel, obj)
-            ) {
-              e.currentTarget.setPointerCapture(e.pointerId)
-              return
-            }
-
-            boxSelectPendingRef.current = {
-              x: e.clientX,
-              y: e.clientY,
-              additive: e.shiftKey,
-            }
-            e.currentTarget.setPointerCapture(e.pointerId)
-          }
-          return
-        }
-      }
-
       e.currentTarget.setPointerCapture(e.pointerId)
-
-      if (
-        selectionMode === 'object' &&
-        (activeTool === 'select-object' || activeTool === 'smart') &&
-        e.button === 0 &&
-        rect &&
-        camera
-      ) {
-        const picked = pickObjectAt(e.clientX, e.clientY, rect, camera, slotIndex)
-
-        if (picked) {
-          if (e.shiftKey) {
-            selectObject(picked, { additive: true })
-            return
-          }
-          const store = useAppStore.getState()
-          if (!store.selectionObjectIds.includes(picked)) {
-            selectObject(picked, { additive: false })
-          }
-          tryBeginSelectionObjectDrag(e)
-          return
-        }
-
-        boxSelectPendingRef.current = {
-          x: e.clientX,
-          y: e.clientY,
-          additive: e.shiftKey,
-        }
-        return
-      }
 
       if (activeTool === 'loop-cut' && e.button === 0 && rect && camera) {
         const store = useAppStore.getState()
@@ -1309,44 +1363,6 @@ export function useViewportPointerHandlers({
         return
       }
 
-      if (activeTool === 'primitive-box' && view === 'perspective') {
-        const draft = useAppStore.getState().primitiveBoxDraft
-        const groundY = draft?.groundY ?? defaultDepth
-
-        if (draft?.phase === 'scrollHeight' && draft.baseView === 'perspective') {
-          const now = performance.now()
-          const last = perspectiveHeightClickRef.current
-          if (
-            now - last.t < 350 &&
-            Math.hypot(e.clientX - last.x, e.clientY - last.y) < 10
-          ) {
-            perspectiveHeightClickRef.current = { t: 0, x: 0, y: 0 }
-            e.preventDefault()
-            e.stopPropagation()
-            commitPrimitiveBox()
-            return
-          }
-          perspectiveHeightClickRef.current = { t: now, x: e.clientX, y: e.clientY }
-
-          e.currentTarget.setPointerCapture(e.pointerId)
-          e.preventDefault()
-          e.stopPropagation()
-          beginPointerInteraction()
-          perspectiveHeightDragRef.current = {
-            startY: e.clientY,
-            startHeight: draft.scrollHeight ?? 4,
-          }
-          return
-        }
-
-        const ground = getGroundPoint(e.clientX, e.clientY, groundY)
-        if (!ground) return
-        e.currentTarget.setPointerCapture(e.pointerId)
-        primitiveGestureViewRef.current = view
-        primitiveBoxPointerDown({ x: 0, y: 0 }, view, e.shiftKey, ground)
-        return
-      }
-
       const pt = getPlanePoint(e)
       if (!pt) return
 
@@ -1368,13 +1384,6 @@ export function useViewportPointerHandlers({
         }
         vectorGestureViewRef.current = view
         penPointerDown(pt, view)
-        return
-      }
-
-      if (activeTool === 'primitive-box' && view !== 'perspective') {
-        e.currentTarget.setPointerCapture(e.pointerId)
-        primitiveGestureViewRef.current = view
-        primitiveBoxPointerDown(pt, view, e.shiftKey)
         return
       }
 
@@ -1440,6 +1449,7 @@ export function useViewportPointerHandlers({
       getDrawPlanePoint,
       getGroundPoint,
       beginPerspectiveStrokeFrame,
+      applyPerspectivePrimitiveHeight,
       selectObject,
       selectBillboardImage,
       selectReferenceImage,
@@ -1468,8 +1478,115 @@ export function useViewportPointerHandlers({
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
+      if (suppressSyntheticOrbitEvents) return
       if (useAppStore.getState().meshModal || useAppStore.getState().objectTransformModal) return
       if (e.buttons === 4) return
+
+      if (componentDragRef.current && (e.buttons & 1) === 1 && !marqueeStartRef.current && !boxSelectPendingRef.current) {
+        const drag = componentDragRef.current
+        const delta = getComponentDragDelta(e, drag)
+        if (delta) {
+          drag.moved = true
+          translateMeshSelection(delta, drag.basePositions)
+        }
+        return
+      }
+
+      if (selectDragRef.current && selectionMode === 'object' && (e.buttons & 1) === 1 && !marqueeStartRef.current && !boxSelectPendingRef.current) {
+        const drag = selectDragRef.current
+        const delta = getObjectDragDelta(e, drag)
+        if (delta) {
+          drag.moved = true
+          translateSelectionByDelta(delta, drag.baseTransforms)
+        }
+        return
+      }
+
+      if (lmbClickPendingRef.current && (e.buttons & 1) === 1) {
+        const pending = lmbClickPendingRef.current
+        const dx = Math.abs(e.clientX - pending.x)
+        const dy = Math.abs(e.clientY - pending.y)
+        if (
+          dx > VIEWPORT_CLICK_DRAG_THRESHOLD_PX ||
+          dy > VIEWPORT_CLICK_DRAG_THRESHOLD_PX
+        ) {
+          lmbClickPendingRef.current = null
+
+          if (pending.kind === 'empty' || pending.shiftKey) {
+            return
+          }
+
+          if (pending.kind === 'component-pick' && canPickComponentSelection(activeTool)) {
+            const rect = containerRef.current?.getBoundingClientRect()
+            const camera = cameraRef.current
+            if (rect && camera) {
+              const storeAtDrag = useAppStore.getState()
+              camera.updateMatrixWorld()
+              if (
+                'updateProjectionMatrix' in camera &&
+                typeof camera.updateProjectionMatrix === 'function'
+              ) {
+                camera.updateProjectionMatrix()
+              }
+              const hit = pickMeshComponent(
+                selectionMode,
+                pending.x,
+                pending.y,
+                rect,
+                camera,
+                storeAtDrag.objects,
+                storeAtDrag.meshSelection?.objectId ?? selectedObjectId,
+                { cullBackVertices: !viewportXRay }
+              )
+              const hasComponent =
+                hit &&
+                (hit.vertex !== undefined || hit.edge !== undefined || hit.face !== undefined)
+              if (hasComponent && hit) {
+                const obj = storeAtDrag.objects.find((o) => o.id === hit.objectId)
+                const sel = storeAtDrag.meshSelection
+                const hitSelected =
+                  obj &&
+                  sel &&
+                  selectionHasComponents(sel) &&
+                  isHitInMeshSelection(hit, sel, selectionMode, obj)
+
+                beginPointerInteraction()
+                if (
+                  canDragComponentSelection(activeTool) &&
+                  hitSelected &&
+                  obj &&
+                  sel &&
+                  tryBeginMeshSelectionDrag(e, sel, obj)
+                ) {
+                  e.currentTarget.setPointerCapture(e.pointerId)
+                  return
+                }
+
+                applyMeshPick(hit, pending.shiftKey)
+                if (
+                  !pending.shiftKey &&
+                  obj &&
+                  canDragComponentSelection(activeTool)
+                ) {
+                  const selAfter = useAppStore.getState().meshSelection
+                if (
+                  selAfter &&
+                  selectionHasComponents(selAfter) &&
+                  tryBeginMeshSelectionDrag(e, selAfter, obj)
+                ) {
+                  e.currentTarget.setPointerCapture(e.pointerId)
+                  return
+                }
+                }
+                return
+              }
+            }
+          }
+
+          lmbClickPendingRef.current = null
+        }
+        return
+      }
 
       if (pixelShapeRef.current && (e.buttons & 1) === 1) {
         const rect = containerRef.current?.getBoundingClientRect()
@@ -1593,27 +1710,7 @@ export function useViewportPointerHandlers({
         return
       }
 
-      if (componentDragRef.current && (e.buttons & 1) === 1 && !marqueeStartRef.current && !boxSelectPendingRef.current) {
-        const drag = componentDragRef.current
-        const delta = getComponentDragDelta(e, drag)
-        if (delta) {
-          drag.moved = true
-          translateMeshSelection(delta, drag.basePositions)
-        }
-        return
-      }
-
-      if (selectDragRef.current && selectionMode === 'object' && (e.buttons & 1) === 1 && !marqueeStartRef.current && !boxSelectPendingRef.current) {
-        const drag = selectDragRef.current
-        const delta = getObjectDragDelta(e, drag)
-        if (delta) {
-          drag.moved = true
-          translateSelectionByDelta(delta, drag.baseTransforms)
-        }
-        return
-      }
-
-      if (boxSelectPendingRef.current && (e.buttons & 1) === 1 && !marqueeStartRef.current) {
+      if (boxSelectPendingRef.current && (e.buttons & MARQUEE_BUTTONS_MASK) === MARQUEE_BUTTONS_MASK && !marqueeStartRef.current) {
         const pending = boxSelectPendingRef.current
         const dx = Math.abs(e.clientX - pending.x)
         const dy = Math.abs(e.clientY - pending.y)
@@ -1634,7 +1731,7 @@ export function useViewportPointerHandlers({
         return
       }
 
-      if (marqueeStartRef.current && (e.buttons & 1) === 1) {
+      if (marqueeStartRef.current && (e.buttons & MARQUEE_BUTTONS_MASK) === MARQUEE_BUTTONS_MASK) {
         setMarqueeRect({
           x0: marqueeStartRef.current.x,
           y0: marqueeStartRef.current.y,
@@ -1791,12 +1888,8 @@ export function useViewportPointerHandlers({
         return
       }
 
-      if (perspectiveHeightDragRef.current && (e.buttons & 1) === 1) {
-        const drag = perspectiveHeightDragRef.current
-        const deltaPx = drag.startY - e.clientY
-        setPrimitiveBoxScrollHeight(
-          drag.startHeight + deltaPx * PERSPECTIVE_PRIMITIVE_HEIGHT_DRAG_SCALE
-        )
+      if (perspectiveHeightDraggingRef.current && (e.buttons & 1) === 1) {
+        applyPerspectivePrimitiveHeight(e.clientX, e.clientY)
         return
       }
 
@@ -1897,14 +1990,116 @@ export function useViewportPointerHandlers({
         return
       }
     },
-    [view, defaultDepth, activeTool, selectionMode, objects, selectedObjectId, continueStroke, continueVectorStroke, applySculptAt, getPlanePoint, getDrawPlanePoint, getGroundPoint, resolvePolyDrawAt, getObjectDragDelta, getComponentDragDelta, translateSelectionByDelta, translateMeshSelection, penPointerMove, scheduleMeshHoverPick, primitiveBoxPointerMove, polyDrawPointerMove, setStrokePreview, updateExtrudeFromPointer, resolveKnifeWorld, resolveKnifeHit, knifeHover, knifeClearHover, setPrimitiveBoxScrollHeight]
+    [view, defaultDepth, activeTool, selectionMode, objects, selectedObjectId, continueStroke, continueVectorStroke, applySculptAt, getPlanePoint, getDrawPlanePoint, getGroundPoint, resolvePolyDrawAt, getObjectDragDelta, getComponentDragDelta, translateSelectionByDelta, translateMeshSelection, penPointerMove, scheduleMeshHoverPick, primitiveBoxPointerMove, polyDrawPointerMove, setStrokePreview, updateExtrudeFromPointer, resolveKnifeWorld, resolveKnifeHit, knifeHover, knifeClearHover, applyPerspectivePrimitiveHeight, beginPointerInteraction, resolveObjectClickSelection, tryBeginSelectionObjectDrag, tryBeginMeshSelectionDrag, applyMeshPick, viewportXRay]
   )
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
       try {
+      if (suppressSyntheticOrbitEvents) return
       if (useAppStore.getState().meshModal || useAppStore.getState().objectTransformModal) return
       if (e.button === 1) return
+
+      if (lmbClickPendingRef.current && e.button === 0) {
+        const pending = lmbClickPendingRef.current
+        lmbClickPendingRef.current = null
+        const wasClick =
+          !selectDragRef.current?.moved &&
+          !componentDragRef.current?.moved &&
+          Math.abs(e.clientX - pending.x) <= VIEWPORT_CLICK_DRAG_THRESHOLD_PX &&
+          Math.abs(e.clientY - pending.y) <= VIEWPORT_CLICK_DRAG_THRESHOLD_PX
+        if (wasClick) {
+          const rect = containerRef.current?.getBoundingClientRect()
+          const camera = cameraRef.current
+          if (rect && camera) {
+            if (pending.altKey) {
+              const picked = pickObjectAt(e.clientX, e.clientY, rect, camera, slotIndex)
+              if (picked) {
+                selectObject(picked, { additive: pending.shiftKey })
+                return
+              }
+            }
+            if (pending.kind === 'object-transform') {
+              if (pending.pickedObjectId) {
+                resolveObjectClickSelection(pending.pickedObjectId, pending.shiftKey)
+              } else if (!pending.shiftKey) {
+                selectObject(null)
+                selectBillboardImage(null)
+                selectReferenceImage(null)
+              }
+            } else if (pending.kind === 'object-select') {
+              if (pending.pickedObjectId) {
+                if (pending.shiftKey) {
+                  selectObject(pending.pickedObjectId, { additive: true })
+                } else {
+                  const storeAtClick = useAppStore.getState()
+                  if (!storeAtClick.selectionObjectIds.includes(pending.pickedObjectId)) {
+                    selectObject(pending.pickedObjectId, { additive: false })
+                  }
+                }
+              } else {
+                if (!pending.shiftKey) {
+                  selectObject(null)
+                  selectBillboardImage(null)
+                  selectReferenceImage(null)
+                }
+              }
+            } else if (pending.kind === 'empty') {
+              if (!pending.shiftKey) {
+                selectObject(null)
+                selectBillboardImage(null)
+                selectReferenceImage(null)
+              }
+            } else if (pending.kind === 'component-pick') {
+              camera.updateMatrixWorld()
+              if (
+                'updateProjectionMatrix' in camera &&
+                typeof camera.updateProjectionMatrix === 'function'
+              ) {
+                camera.updateProjectionMatrix()
+              }
+              const storeAtClick = useAppStore.getState()
+              const hit = pickMeshComponent(
+                selectionMode,
+                e.clientX,
+                e.clientY,
+                rect,
+                camera,
+                objects,
+                storeAtClick.meshSelection?.objectId ?? selectedObjectId,
+                { cullBackVertices: !viewportXRay }
+              )
+              const hasComponent =
+                hit &&
+                (hit.vertex !== undefined || hit.edge !== undefined || hit.face !== undefined)
+              if (hasComponent && hit) {
+                applyMeshPick(hit, pending.shiftKey)
+                if (
+                  viewportDisplayMode === 'normals' &&
+                  pending.altKey &&
+                  !pending.shiftKey &&
+                  selectionMode === 'face' &&
+                  hit.face !== undefined
+                ) {
+                  flipFaceNormal(hit.objectId, hit.face)
+                } else if (
+                  activeTool === 'extrude' &&
+                  selectionMode === 'face' &&
+                  hit.face !== undefined &&
+                  !pending.shiftKey
+                ) {
+                  beginMeshModal('extrude', e.clientX, e.clientY, view)
+                }
+              } else {
+                if (!pending.shiftKey) {
+                  clearMeshSelection()
+                }
+              }
+            }
+          }
+        }
+        return
+      }
 
       const store = useAppStore.getState()
       if (pixelShapeRef.current) {
@@ -1952,12 +2147,13 @@ export function useViewportPointerHandlers({
         return
       }
 
-      if (perspectiveHeightDragRef.current && e.button === 0) {
-        perspectiveHeightDragRef.current = null
+      if (perspectiveHeightDraggingRef.current && e.button === 0) {
+        perspectiveHeightDraggingRef.current = false
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
           e.currentTarget.releasePointerCapture(e.pointerId)
         }
         endPointerInteraction()
+        commitPrimitiveBox()
         return
       }
 
@@ -2058,19 +2254,7 @@ export function useViewportPointerHandlers({
       }
 
       if (boxSelectPendingRef.current) {
-        const pending = boxSelectPendingRef.current
         boxSelectPendingRef.current = null
-        if (!pending.additive) {
-          if (selectionMode === 'object') {
-            selectObject(null)
-            selectBillboardImage(null)
-            selectReferenceImage(null)
-          } else if (isComponentSelectionMode(selectionMode) && rect && camera) {
-            clearMeshSelection()
-            const pickedObjectId = pickObjectAt(e.clientX, e.clientY, rect, camera, slotIndex)
-            if (pickedObjectId) selectObject(pickedObjectId)
-          }
-        }
         return
       }
 
@@ -2103,11 +2287,18 @@ export function useViewportPointerHandlers({
         primitiveGestureViewRef.current === view
       ) {
         if (view === 'perspective') {
-          const groundY = storeAtUp.primitiveBoxDraft?.groundY ?? defaultDepth
-          const ground = getGroundPoint(e.clientX, e.clientY, groundY)
-          primitiveBoxPointerUp({ x: 0, y: 0 }, view, e.shiftKey, ground ?? undefined)
+          const draft = storeAtUp.primitiveBoxDraft
+          const groundY = draft?.groundY ?? defaultDepth
+          const ground =
+            getGroundPoint(e.clientX, e.clientY, groundY) ?? draft?.worldCornerB ?? undefined
+          primitiveBoxPointerUp({ x: 0, y: 0 }, view, e.shiftKey, ground)
         } else {
-          const pt = getPlanePoint(e)
+          const draft = storeAtUp.primitiveBoxDraft
+          const pt =
+            getPlanePoint(e) ??
+            (draft?.phase === 'drawingHeight' ? draft.heightCornerB ?? draft.heightCornerA : null) ??
+            draft?.baseCornerB ??
+            null
           if (pt) primitiveBoxPointerUp(pt, view, e.shiftKey)
         }
         primitiveGestureViewRef.current = null
@@ -2147,9 +2338,15 @@ export function useViewportPointerHandlers({
         vectorGestureViewRef.current = null
         strokeGestureViewRef.current = null
         primitiveGestureViewRef.current = null
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId)
+        }
       }
       } finally {
-        if (e.button === 0) endPointerInteraction()
+        if (e.button === 0) {
+          clearViewportLeftButtonBlocked()
+        }
+        if (e.button === 0 || e.button === 2) endPointerInteraction()
       }
     },
     [
@@ -2174,6 +2371,7 @@ export function useViewportPointerHandlers({
       commitHistory,
       viewportXRay,
       endPointerInteraction,
+      commitPrimitiveBox,
     ]
   )
 
@@ -2187,18 +2385,32 @@ export function useViewportPointerHandlers({
       ) {
         return
       }
-      if (perspectiveHeightDragRef.current) {
-        perspectiveHeightDragRef.current = null
+      if (perspectiveHeightDraggingRef.current) {
+        perspectiveHeightDraggingRef.current = false
         endPointerInteraction()
       }
       handlePointerUp(e)
+      lmbClickPendingRef.current = null
+      clearViewportLeftButtonBlocked()
       setMeshHover(null)
       if (useAppStore.getState().activeTool === 'poly-draw') {
         clearPolyDrawHover()
       }
     },
-    [handlePointerUp, setMeshHover, clearPolyDrawHover, endPointerInteraction]
+    [handlePointerUp, setMeshHover, clearPolyDrawHover, endPointerInteraction, clearViewportLeftButtonBlocked]
   )
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onContextMenu = (e: Event) => {
+      if (marqueeStartRef.current || marqueeRect) {
+        e.preventDefault()
+      }
+    }
+    el.addEventListener('contextmenu', onContextMenu)
+    return () => el.removeEventListener('contextmenu', onContextMenu)
+  }, [marqueeRect])
 
   const handleWheel = useCallback(
     (e: WheelEvent) => {
@@ -2219,13 +2431,13 @@ export function useViewportPointerHandlers({
         e.stopPropagation()
         return
       }
-      if (!perspectivePrimitiveScrollHeight) return
+      if (!perspectivePrimitiveHeightAdjust) return
       e.preventDefault()
       e.stopPropagation()
       adjustPrimitiveBoxWheel(e.deltaY)
     },
     [
-      perspectivePrimitiveScrollHeight,
+      perspectivePrimitiveHeightAdjust,
       adjustPrimitiveBoxWheel,
       loopCutAdjustWheel,
     ]
@@ -2238,13 +2450,13 @@ export function useViewportPointerHandlers({
       const store = useAppStore.getState()
       if (store.loopCutDraft && store.activeTool === 'loop-cut') {
         handleWheel(e)
-      } else if (perspectivePrimitiveScrollHeight || roundedBoxParamWheel) {
+      } else if (perspectivePrimitiveHeightAdjust || roundedBoxParamWheel) {
         handleWheel(e)
       }
     }
     el.addEventListener('wheel', onWheel, { passive: false, capture: true })
     return () => el.removeEventListener('wheel', onWheel, { capture: true })
-  }, [perspectivePrimitiveScrollHeight, roundedBoxParamWheel, handleWheel])
+  }, [perspectivePrimitiveHeightAdjust, roundedBoxParamWheel, handleWheel])
 
   const handleDragOver = useCallback(
     (e: React.DragEvent) => {
@@ -2303,11 +2515,31 @@ export function useViewportPointerHandlers({
     [imageDropMode, view, defaultDepth, dropImageInView, loadObjectTexture, slotIndex]
   )
 
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent) => {
+      handlePointerUp(e)
+    },
+    [handlePointerUp]
+  )
+
+  useEffect(() => {
+    const onWindowPointerCancel = (event: PointerEvent) => {
+      if (event.button !== 0) return
+      clearViewportLeftButtonBlocked()
+      lmbClickPendingRef.current = null
+      selectDragRef.current = null
+      componentDragRef.current = null
+    }
+    window.addEventListener('pointercancel', onWindowPointerCancel)
+    return () => window.removeEventListener('pointercancel', onWindowPointerCancel)
+  }, [])
+
   return {
     marqueeRect,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
+    handlePointerCancel,
     handlePointerLeave,
     handleWheel,
     handleDragOver,
@@ -2316,7 +2548,7 @@ export function useViewportPointerHandlers({
     },
     handleDrop,
     imageDragOver,
-    perspectivePrimitiveScrollHeight,
+    perspectivePrimitiveHeightAdjust,
     roundedBoxParamWheel,
   }
 }

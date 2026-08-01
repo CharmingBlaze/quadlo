@@ -28,12 +28,13 @@ import { SidePanelPixelEditorMenu } from './SidePanelPixelEditorMenu'
 import { SideButtonDropdown } from './SideButtonDropdown'
 import { resolveTargetObjectIds } from '../material/materialEditorSlice'
 import { computeSelectionFitFrame } from '../viewport/fitViewports'
-import { useOutlinerUiStore } from '../store/outlinerUiStore'
+import { SceneOutliner } from './SceneOutliner'
 import { boxCenterSize } from '../primitives/primitiveBoxMath'
 import { HairTextureDialog } from './HairTextureDialog'
 import { listSceneTextures } from '../uv/sceneTextures'
 import { pickOpenFile } from '../io/fileDialogs'
 import { IMAGE_IMPORT_FILTERS } from '../io/download'
+import { SideSubTabs } from './SideSubTabs'
 
 const MODEL_IMPORT_FILTERS = [
   { name: '3D models', extensions: ['obj', 'glb', 'gltf', 'stl'] },
@@ -78,6 +79,9 @@ const TOOL_LABELS: Record<string, string> = {
   relax: 'Smooth',
   pinch: 'Pinch',
   'select-object': 'Select · Object',
+  'select-vertex': 'Select · Vertex',
+  'select-edge': 'Select · Edge',
+  'select-face': 'Select · Face',
   smart: 'Mesh · Select',
   extrude: 'Mesh · Push/Pull',
   move: 'Move',
@@ -104,8 +108,15 @@ type SidePanelTab = 'create' | 'edit' | 'look' | 'scene'
 const SIDE_PANEL_TABS: { id: SidePanelTab; label: string; title: string }[] = [
   { id: 'create', label: 'Create', title: 'Create tools and active drawing options' },
   { id: 'edit', label: 'Edit', title: 'Selection, transform, topology, and object actions' },
-  { id: 'look', label: 'Look', title: 'Appearance, materials, and viewport display' },
-  { id: 'scene', label: 'Scene', title: 'References, workspace panels, and interface' },
+  { id: 'look', label: 'Look', title: 'Appearance, display, references, workspace, and theme' },
+  { id: 'scene', label: 'Scene', title: 'Scene hierarchy' },
+]
+
+type EditSubTab = 'select-transform' | 'mesh'
+
+const EDIT_SUB_TABS: { id: EditSubTab; label: string; title: string }[] = [
+  { id: 'select-transform', label: 'Select & Transform', title: 'Selection filters and move/rotate/scale tools' },
+  { id: 'mesh', label: 'Mesh', title: 'Topology, symmetry, knife, and object actions' },
 ]
 
 function SideBtnGroup({
@@ -162,29 +173,6 @@ function SideSection({
         {children}
       </div>
     </section>
-  )
-}
-
-/** Compact inspector subsection used for dense option groups inside a panel. */
-function SideSubsection({ title, children }: { title: string; children: ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false)
-  const contentId = useId()
-  return (
-    <div className="side-subsection">
-      <button
-        type="button"
-        className="side-create-label side-subsection-toggle"
-        onClick={() => setCollapsed((value) => !value)}
-        aria-expanded={!collapsed}
-        aria-controls={contentId}
-      >
-        <span>{title}</span>
-        <span className="side-subsection-state" aria-hidden>{collapsed ? 'Show ▸' : 'Hide ▾'}</span>
-      </button>
-      <div id={contentId} className="side-subsection-body" hidden={collapsed}>
-        {children}
-      </div>
-    </div>
   )
 }
 
@@ -311,9 +299,6 @@ function PanelResizeHandle({ onResize, width }: { onResize: (width: number) => v
 }
 
 export function SidePanel() {
-  const outlinerOpen = useOutlinerUiStore((state) => state.open)
-  const outlinerMinimized = useOutlinerUiStore((state) => state.panel.minimized)
-  const openOutliner = useOutlinerUiStore((state) => state.toggle)
   const {
     activeTool,
     setActiveTool,
@@ -388,9 +373,12 @@ export function SidePanel() {
     setShowDensityHeatmap,
     viewportDisplayMode,
     setViewportDisplayMode,
+    viewportShadowsEnabled,
+    setViewportShadowsEnabled,
     viewportXRay,
     setViewportXRay,
     requestViewportFit,
+    resetViewportQuadLayout,
     setSelectionSmoothShading,
     toggleTopologyLock,
     simplifySelected,
@@ -470,6 +458,20 @@ export function SidePanel() {
     selectedBillboardImageId,
     updateBillboardImage,
     removeBillboardImage,
+    gizmoVisible,
+    setGizmoVisible,
+    gizmoSpace,
+    setGizmoSpace,
+    gizmoSnapEnabled,
+    setGizmoSnapEnabled,
+    gizmoTranslationSnap,
+    setGizmoTranslationSnap,
+    gizmoRotationSnap,
+    setGizmoRotationSnap,
+    gizmoScaleSnap,
+    setGizmoScaleSnap,
+    gizmoSize,
+    setGizmoSize,
   } = useAppStore(
     useShallow((s) => ({
       activeTool: s.activeTool,
@@ -578,9 +580,12 @@ export function SidePanel() {
       setShowDensityHeatmap: s.setShowDensityHeatmap,
       viewportDisplayMode: s.viewportDisplayMode,
       setViewportDisplayMode: s.setViewportDisplayMode,
+      viewportShadowsEnabled: s.viewportShadowsEnabled,
+      setViewportShadowsEnabled: s.setViewportShadowsEnabled,
       viewportXRay: s.viewportXRay,
       setViewportXRay: s.setViewportXRay,
       requestViewportFit: s.requestViewportFit,
+      resetViewportQuadLayout: s.resetViewportQuadLayout,
       setSelectionSmoothShading: s.setSelectionSmoothShading,
       toggleTopologyLock: s.toggleTopologyLock,
       simplifySelected: s.simplifySelected,
@@ -660,6 +665,20 @@ export function SidePanel() {
       selectedBillboardImageId: s.selectedBillboardImageId,
       updateBillboardImage: s.updateBillboardImage,
       removeBillboardImage: s.removeBillboardImage,
+      gizmoVisible: s.gizmoVisible,
+      setGizmoVisible: s.setGizmoVisible,
+      gizmoSpace: s.gizmoSpace,
+      setGizmoSpace: s.setGizmoSpace,
+      gizmoSnapEnabled: s.gizmoSnapEnabled,
+      setGizmoSnapEnabled: s.setGizmoSnapEnabled,
+      gizmoTranslationSnap: s.gizmoTranslationSnap,
+      setGizmoTranslationSnap: s.setGizmoTranslationSnap,
+      gizmoRotationSnap: s.gizmoRotationSnap,
+      setGizmoRotationSnap: s.setGizmoRotationSnap,
+      gizmoScaleSnap: s.gizmoScaleSnap,
+      setGizmoScaleSnap: s.setGizmoScaleSnap,
+      gizmoSize: s.gizmoSize,
+      setGizmoSize: s.setGizmoSize,
     }))
   )
 
@@ -676,6 +695,7 @@ export function SidePanel() {
   const [objectArrayImportBusy, setObjectArrayImportBusy] = useState(false)
   const [objectArraySourceError, setObjectArraySourceError] = useState<string | null>(null)
   const [panelTab, setPanelTab] = useState<SidePanelTab>('create')
+  const [editSubTab, setEditSubTab] = useState<EditSubTab>('select-transform')
 
   const hairTextureLabel = useMemo(() => {
     if (!hairTextureId) return null
@@ -989,54 +1009,59 @@ export function SidePanel() {
     <>
       <PanelResizeHandle onResize={setSidePanelWidth} width={sidePanelWidth} />
       <aside className="side-panel" style={{ width: sidePanelWidth }}>
-        <div className="side-panel-header">
-          <AppBrandMark />
-          <SidePanelFileMenu />
-          <span className={`tool-badge ${activeTool}`}>{activeLabel}</span>
-          <div className="side-history-actions">
-            <button
-              type="button"
-              className="side-history-btn"
-              disabled={!canUndo}
-              onClick={() => undo()}
-              title="Undo (Ctrl+Z)"
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              className="side-history-btn"
-              disabled={!canRedo}
-              onClick={() => redo()}
-              title="Redo (Ctrl+Y)"
-            >
-              Redo
-            </button>
+        <div className="side-panel-chrome">
+          <div className="side-panel-header">
+            <div className="side-panel-header-top">
+              <AppBrandMark />
+              <SidePanelFileMenu />
+            </div>
+            <div className="side-panel-header-status">
+              <span className={`tool-badge ${activeTool}`}>{activeLabel}</span>
+              <div className="side-history-actions">
+                <button
+                  type="button"
+                  className="side-history-btn"
+                  disabled={!canUndo}
+                  onClick={() => undo()}
+                  title="Undo (Ctrl+Z)"
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  className="side-history-btn"
+                  disabled={!canRedo}
+                  onClick={() => redo()}
+                  title="Redo (Ctrl+Y)"
+                >
+                  Redo
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="side-panel-tabs" role="tablist" aria-label="Side panel sections">
+            {SIDE_PANEL_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={panelTab === tab.id}
+                id={`side-panel-tab-${tab.id}`}
+                className={`side-panel-tab ${panelTab === tab.id ? 'active' : ''}`}
+                title={tab.title}
+                onClick={() => setPanelTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        <div className="side-panel-tabs" role="tablist" aria-label="Side panel sections">
-          {SIDE_PANEL_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={panelTab === tab.id}
-              id={`side-panel-tab-${tab.id}`}
-              className={`side-panel-tab ${panelTab === tab.id ? 'active' : ''}`}
-              title={tab.title}
-              onClick={() => setPanelTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="side-panel-scroll themed-scroll">
+        <div className={`side-panel-scroll themed-scroll${panelTab === 'scene' ? ' side-panel-scroll-scene' : ''}`}>
           {panelTab === 'create' && (
           <>
-          <SideSection title="Create" columns={2} order={10} collapsible={false}>
-            <div className="side-create-label">Mesh tools</div>
+          <SideSection title="Mesh tools" columns={2} order={23}>
             <SideBtnGroup cols={3}>
               <button
                 type="button"
@@ -1095,7 +1120,8 @@ export function SidePanel() {
                 Line closes loops into faces. Rectangle uses opposite corners. Polygon uses centre and radius. Push/Pull reshapes a face. Right-click commits in-progress mesh tools. Drawing Options → Double-sided makes new mesh faces two-sided; or select a face and use Double Sided.
               </p>
             )}
-            <SideSubsection title="Drawing options">
+          </SideSection>
+          <SideSection title="Drawing options" order={24}>
               <div className="side-checkbox-row">
               <label className="side-checkbox" title="Snap to path endpoints">
                 <input
@@ -1178,31 +1204,8 @@ export function SidePanel() {
                 <span>Snap to grid</span>
               </label>
               </div>
-            </SideSubsection>
-            <div className="side-create-label">Shape tools</div>
-            <div className="side-shape-menus">
-              <SidePanelPrimitivesMenu
-                activePrimitiveKind={activePrimitiveKind}
-                primitiveToolActive={activeTool === 'primitive-box'}
-                onSelect={handlePrimitiveKindChange}
-              />
-              <SidePanelVectorShapesMenu
-                activeShapeKind={activeShapeKind}
-                vectorShapeToolActive={activeTool === 'vector-shape'}
-                onSelect={handleShapeKindChange}
-              />
-            </div>
-            {activeTool === 'poly-draw' && (
-              <p className="side-color-hint muted">
-                {polyDrawMode === 'poly'
-                  ? 'Click connected line points · click the first point to close the loop and create a face.'
-                  : polyDrawMode === 'rectangle'
-                    ? 'Click one corner, then the opposite corner to create a rectangle.'
-                    : polyDrawMode === 'ngon'
-                      ? 'Click the centre, then click the radius to create a six-sided polygon.'
-                      : `${polyDrawMode === 'triangle' ? 'Three' : 'Four'} clicks complete each face.`}
-              </p>
-            )}
+          </SideSection>
+          <SideSection title="Strokes & drawing" columns={2} order={21}>
             <div className="side-create-label">Drawing input</div>
             <SideBtnGroup cols={2}>
               <button
@@ -1430,7 +1433,33 @@ export function SidePanel() {
                 </p>
               </div>
             )}
-            <div className="side-create-label">3D operation</div>
+          </SideSection>
+          <SideSection title="Shape tools" order={20}>
+            <div className="side-shape-menus">
+              <SidePanelPrimitivesMenu
+                activePrimitiveKind={activePrimitiveKind}
+                primitiveToolActive={activeTool === 'primitive-box'}
+                onSelect={handlePrimitiveKindChange}
+              />
+              <SidePanelVectorShapesMenu
+                activeShapeKind={activeShapeKind}
+                vectorShapeToolActive={activeTool === 'vector-shape'}
+                onSelect={handleShapeKindChange}
+              />
+            </div>
+            {activeTool === 'poly-draw' && (
+              <p className="side-color-hint muted">
+                {polyDrawMode === 'poly'
+                  ? 'Click connected line points · click the first point to close the loop and create a face.'
+                  : polyDrawMode === 'rectangle'
+                    ? 'Click one corner, then the opposite corner to create a rectangle.'
+                    : polyDrawMode === 'ngon'
+                      ? 'Click the centre, then click the radius to create a six-sided polygon.'
+                      : `${polyDrawMode === 'triangle' ? 'Three' : 'Four'} clicks complete each face.`}
+              </p>
+            )}
+          </SideSection>
+          <SideSection title="3D operations" order={22}>
             <SideBtnGroup cols={2}>
               <button
                 type="button"
@@ -1501,7 +1530,7 @@ export function SidePanel() {
           </SideSection>
 
           {isSketchOrPen && (
-            <SideSection title="Active tool · Stroke" order={11}>
+            <SideSection title="Active tool · Stroke" order={30}>
               {selectedSketchSource && selectedObj && (
                 <>
                   <div className="side-create-label">Source</div>
@@ -1890,7 +1919,7 @@ export function SidePanel() {
           )}
 
           {selectedPrimitiveSource && selectedPrimitiveSize && (
-            <SideSection title="Active tool · Primitive" order={12}>
+            <SideSection title="Active tool · Primitive" order={31}>
               <div className="side-create-label">Source</div>
               <div className="side-chips">
                 <span className="lock-indicator">Editable {selectedPrimitiveSource.type}</span>
@@ -1977,7 +2006,7 @@ export function SidePanel() {
           )}
 
           {activeTool === 'vector-shape' && (
-            <SideSection title="Active tool · Vector" order={12}>
+            <SideSection title="Active tool · Vector" order={32}>
               <div className="side-create-label">Placement</div>
               <p className="side-color-hint muted">Drag in an ortho view to place.</p>
               {activeShapeKind === 'roundedBox' && (
@@ -2010,7 +2039,7 @@ export function SidePanel() {
           )}
 
           {isSculptTool && (
-            <SideSection title="Active tool · Sculpt" order={13}>
+            <SideSection title="Active tool · Sculpt" order={33}>
               <div className="side-create-label">Brush</div>
               <SideSlider
                 label="Brush strength"
@@ -2030,6 +2059,14 @@ export function SidePanel() {
           )}
 
           {panelTab === 'edit' && (
+          <>
+          <SideSubTabs
+            tabs={EDIT_SUB_TABS}
+            value={editSubTab}
+            onChange={setEditSubTab}
+            ariaLabel="Edit tools"
+          />
+          {editSubTab === 'select-transform' && (
           <>
           <SideSection title="Selection" columns={2} order={20}>
             <div className="side-create-label">Selection filters</div>
@@ -2093,7 +2130,7 @@ export function SidePanel() {
               X-ray
             </button>
             <p className="side-color-hint muted">
-              Hold Shift for multi-selection. Ctrl-drag selects with a box; X-ray includes hidden components.
+              Hold Shift for multi-selection. Ctrl+drag selects with a box; X-ray includes hidden components.
             </p>
             {selectionMode === 'vertex' && (
               <p className="side-color-hint muted">
@@ -2200,6 +2237,112 @@ export function SidePanel() {
             </SideBtnGroup>
           </SideSection>
 
+          <SideSection title="Gizmo" columns={2} order={22}>
+            <div className="side-create-label">Mode</div>
+            <SideBtnGroup cols={2}>
+              <button
+                className={`side-btn ${activeTool === 'move' ? 'active' : ''}`}
+                onClick={() => setActiveTool('move')}
+                title="Move gizmo (M)"
+              >
+                Move
+              </button>
+              <button
+                className={`side-btn ${activeTool === 'rotate' ? 'active' : ''}`}
+                onClick={() => setActiveTool('rotate')}
+                title="Rotate gizmo (R)"
+              >
+                Rotate
+              </button>
+              <button
+                className={`side-btn ${activeTool === 'scale' ? 'active' : ''}`}
+                onClick={() => setActiveTool('scale')}
+                title="Scale gizmo (S)"
+              >
+                Scale
+              </button>
+              <button
+                className={`side-btn ${gizmoVisible ? 'active' : ''}`}
+                onClick={() => setGizmoVisible(!gizmoVisible)}
+                title="Show or hide transform gizmos"
+              >
+                {gizmoVisible ? 'Hide gizmo' : 'Show gizmo'}
+              </button>
+            </SideBtnGroup>
+            <div className="side-create-label">Space</div>
+            <SideBtnGroup cols={2}>
+              <button
+                className={`side-btn ${gizmoSpace === 'world' ? 'active' : ''}`}
+                onClick={() => setGizmoSpace('world')}
+                title="Transform in world space"
+              >
+                World
+              </button>
+              <button
+                className={`side-btn ${gizmoSpace === 'local' ? 'active' : ''}`}
+                onClick={() => setGizmoSpace('local')}
+                title="Transform in local object space"
+              >
+                Local
+              </button>
+            </SideBtnGroup>
+            <div className="side-create-label">Snap</div>
+            <button
+              className={`side-btn ${gizmoSnapEnabled ? 'active' : ''}`}
+              onClick={() => setGizmoSnapEnabled(!gizmoSnapEnabled)}
+              title="Toggle transform snap while dragging the gizmo"
+            >
+              Snap {gizmoSnapEnabled ? 'on' : 'off'}
+            </button>
+            {gizmoSnapEnabled && (
+              <>
+                <SideSlider
+                  label="Move snap"
+                  value={gizmoTranslationSnap}
+                  display={gizmoTranslationSnap.toFixed(2)}
+                  min={0.1}
+                  max={10}
+                  step={0.1}
+                  onChange={setGizmoTranslationSnap}
+                />
+                <SideSlider
+                  label="Rotate snap"
+                  value={gizmoRotationSnap}
+                  display={`${Math.round((gizmoRotationSnap * 180) / Math.PI)}°`}
+                  min={Math.PI / 36}
+                  max={Math.PI / 2}
+                  step={Math.PI / 36}
+                  onChange={setGizmoRotationSnap}
+                />
+                <SideSlider
+                  label="Scale snap"
+                  value={gizmoScaleSnap}
+                  display={gizmoScaleSnap.toFixed(2)}
+                  min={0.05}
+                  max={1}
+                  step={0.05}
+                  onChange={setGizmoScaleSnap}
+                />
+              </>
+            )}
+            <SideSlider
+              label="Gizmo size"
+              value={gizmoSize}
+              display={gizmoSize.toFixed(1)}
+              min={0.6}
+              max={2.4}
+              step={0.1}
+              onChange={setGizmoSize}
+            />
+            <p className="side-color-hint muted">
+              Gizmo mode stays in sync with the floating transform bar. Drag handles in any viewport; orbit is paused while dragging.
+            </p>
+          </SideSection>
+          </>
+          )}
+
+          {editSubTab === 'mesh' && (
+          <>
           <SideSection title="Symmetry" order={23}>
             <div className="side-create-label">Mirror</div>
             <label className="side-checkbox" title="Mirror new geometry and sculpt strokes (Blockbench-style)">
@@ -2338,7 +2481,7 @@ export function SidePanel() {
             </p>
           </SideSection>
 
-          <SideSection title="Topology Tools" order={19}>
+          <SideSection title="Topology Tools" order={24}>
             <SideBtnGroup cols={2}>
               <button
                 className={`side-btn ${activeTool === 'knife' ? 'active' : ''}`}
@@ -2467,10 +2610,12 @@ export function SidePanel() {
           </SideSection>
           </>
           )}
+          </>
+          )}
 
           {panelTab === 'look' && (
           <>
-          <SideSection title="Appearance" order={15} collapsible={false}>
+          <SideSection title="Appearance" order={15}>
             <div className="side-create-label">Color</div>
             <PaletteBar variant="side" />
             <div className="side-create-label">Editors</div>
@@ -2510,7 +2655,9 @@ export function SidePanel() {
                 onShowCanvas={togglePixelEditor}
               />
             </div>
-            <div className="side-create-label">Viewport display</div>
+          </SideSection>
+
+          <SideSection title="Display" order={16}>
             <SideButtonDropdown
               label="View"
               value={viewportDisplayMode}
@@ -2528,9 +2675,17 @@ export function SidePanel() {
                 Green outward · red inverted · Alt+click face to flip · F flips selection
               </p>
             )}
-          </SideSection>
-
-          <SideSection title="View" columns={2} order={40}>
+            <label
+              className="side-checkbox"
+              title="Real-time directional shadows — previews in-game contact and depth"
+            >
+              <input
+                type="checkbox"
+                checked={viewportShadowsEnabled}
+                onChange={(e) => setViewportShadowsEnabled(e.target.checked)}
+              />
+              <span>Shadows</span>
+            </label>
             <div className="side-create-label">Viewport aids</div>
             <SideBtnGroup cols={2}>
               <button
@@ -2557,13 +2712,17 @@ export function SidePanel() {
             >
               Reset & Fit
             </button>
+            <button
+              type="button"
+              className="side-btn side-btn-wide"
+              onClick={() => resetViewportQuadLayout()}
+              title="Restore equal 2×2 quad split ratios"
+            >
+              Reset Quad Layout
+            </button>
           </SideSection>
-          </>
-          )}
 
-          {panelTab === 'scene' && (
-          <>
-          <SideSection title="References & images" order={50} collapsible={false}>
+          <SideSection title="References & images" order={17}>
             <div className="side-create-label">Placement</div>
             <p className="side-color-hint muted">
               Drag an image into empty viewport space to place it. Drop onto an existing object to texture that object instead.
@@ -2704,7 +2863,7 @@ export function SidePanel() {
             </p>
           </SideSection>
 
-          <SideSection title="Workspace" order={60} columns={2}>
+          <SideSection title="Workspace" order={18} columns={2}>
             <div className="side-create-label">Toolbars</div>
             <button
               className="side-btn side-btn-wide"
@@ -2715,20 +2874,18 @@ export function SidePanel() {
             </button>
             <TransformToolbarToggle />
             <PrimitivesToolbarToggle />
-            <button
-              className={`side-btn side-btn-wide ${outlinerOpen ? 'active' : ''}`}
-              onClick={openOutliner}
-              title={outlinerMinimized ? 'Restore scene Outliner' : 'Open scene Outliner'}
-            >
-              Outliner{outlinerOpen && outlinerMinimized ? ' ▾' : ''}
-            </button>
           </SideSection>
 
-          <SideSection title="Interface" order={70}>
-            <div className="side-create-label">Theme</div>
+          <SideSection title="Theme" order={19}>
             <ThemePicker />
           </SideSection>
           </>
+          )}
+
+          {panelTab === 'scene' && (
+            <div className="side-scene-panel">
+              <SceneOutliner variant="docked" />
+            </div>
           )}
         </div>
       </aside>

@@ -11,7 +11,7 @@ import type { TextureExportContext } from './materialTextureExport'
 import { EXPORT_UNIT_SCALE } from '../scene/units'
 import { setFlatNormalsFromIndices } from '../rendering/meshGeometry'
 import { bakeMaterialTexturePixels } from './exportTextureBake'
-import type { Material } from '../material/materialTypes'
+import { DEFAULT_MESH_COLOR, type Material } from '../material/materialTypes'
 
 export interface ExportMeshBuildOptions {
   textures?: TextureExportContext
@@ -132,7 +132,7 @@ export function sceneObjectToThreeMesh(
       // Tint / luma / brightness already baked into pixels.
       color: 0xffffff,
       metalness: 0.05,
-      roughness: 0.85,
+      roughness: 0.55,
       flatShading,
       transparent: hasAlpha || effMat.opacity < 0.999,
       opacity: effMat.opacity,
@@ -145,7 +145,7 @@ export function sceneObjectToThreeMesh(
       vertexColors: data.faceColors.length > 0,
       color: data.faceColors.length > 0 ? 0xffffff : source.color,
       metalness: 0.05,
-      roughness: 0.85,
+      roughness: 0.55,
       flatShading,
       transparent: effMat.opacity < 0.999,
       opacity: effMat.opacity,
@@ -174,11 +174,11 @@ export async function sceneObjectsToGroup(
 
 function colorFromMaterial(material: THREE.Material | THREE.Material[]): number {
   const mat = Array.isArray(material) ? material[0] : material
-  if (!mat) return 0x6ecbf5
+  if (!mat) return DEFAULT_MESH_COLOR
   if ('color' in mat && mat.color instanceof THREE.Color) {
     return mat.color.getHex()
   }
-  return 0x6ecbf5
+  return DEFAULT_MESH_COLOR
 }
 
 function vertexColorToHex(r: number, g: number, b: number): number {
@@ -192,7 +192,7 @@ function vertexColorToHex(r: number, g: number, b: number): number {
 export function geometryToSceneObject(
   name: string,
   geometry: THREE.BufferGeometry,
-  fallbackColor = 0x6ecbf5
+  fallbackColor = DEFAULT_MESH_COLOR
 ): SceneObject | null {
   const working = geometry.clone()
   if (!working.getAttribute('position')) return null

@@ -11,14 +11,10 @@ import {
 } from '../mesh/meshSelection'
 import { propagateSymmetricVertexPositions } from '../symmetry/meshSymmetry'
 import { useAppStore, type ActiveTool } from '../store/appStore'
+import { toolToGizmoMode, TRANSFORM_GIZMO_TOOLS } from '../viewport/viewportInteractionUtils'
+import { useGizmoVisible, useTransformGizmoSettings } from '../hooks/useTransformGizmoSettings'
 
-const TRANSFORM_TOOLS: ActiveTool[] = ['move', 'rotate', 'scale']
-
-function toolToMode(tool: ActiveTool): 'translate' | 'rotate' | 'scale' {
-  if (tool === 'rotate') return 'rotate'
-  if (tool === 'scale') return 'scale'
-  return 'translate'
-}
+const TRANSFORM_TOOLS = TRANSFORM_GIZMO_TOOLS
 
 interface MeshSelectionGizmoProps {
   object: SceneObject
@@ -49,6 +45,8 @@ export function MeshSelectionGizmo({
 
   const commitHistory = useAppStore((s) => s.commitHistory)
   const updateObject = useAppStore((s) => s.updateObject)
+  const gizmoVisible = useGizmoVisible()
+  const gizmoSettings = useTransformGizmoSettings()
 
   const center = useMemo(
     () => meshSelectionWorldCenter(object, meshSelection),
@@ -186,7 +184,7 @@ export function MeshSelectionGizmo({
     anchor.updateMatrixWorld()
   }
 
-  if (!TRANSFORM_TOOLS.includes(activeTool) || object.topologyLocked) {
+  if (!gizmoVisible || !TRANSFORM_TOOLS.includes(activeTool) || object.topologyLocked) {
     return null
   }
 
@@ -196,9 +194,8 @@ export function MeshSelectionGizmo({
       <ThemedTransformControls
         object={anchorRef as RefObject<THREE.Object3D>}
         domElement={glDomElement}
-        mode={toolToMode(activeTool)}
-        space="world"
-        size={1.1}
+        mode={toolToGizmoMode(activeTool)}
+        {...gizmoSettings}
         onMouseDown={beginDrag}
         onMouseUp={endDrag}
         onObjectChange={applyGizmo}

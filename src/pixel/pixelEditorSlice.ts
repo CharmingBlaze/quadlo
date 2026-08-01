@@ -1,6 +1,6 @@
 import { generateId } from '../utils/math'
 import type { CustomPalette, Rgba4 } from '../material/materialTypes'
-import { hexToRgba4 } from '../material/materialTypes'
+import { hexToRgba4, DEFAULT_MESH_COLOR_HEX } from '../material/materialTypes'
 import { compositeLayers } from './compositeLayers'
 import {
   clonePixelLayer,
@@ -187,7 +187,7 @@ export const pixelEditorInitialState: PixelEditorState = {
   pixelEditorSymmetryH: false,
   pixelEditorSymmetryV: false,
   pixelEditorPaintOnModel: true,
-  pixelEditorShowUvOverlay: false,
+  pixelEditorShowUvOverlay: true,
   pixelEditorShapeFilled: false,
   pixelEditorZoom: 8,
   pixelEditorPanX: 0,
@@ -195,7 +195,7 @@ export const pixelEditorInitialState: PixelEditorState = {
   pixelEditorSelection: null,
   pixelEditorFillTolerance: 32,
   pixelEditorToolbarPosition: { x: 10, y: 10 },
-  pixelEditorColor: hexToRgba4('#6ecbf5'),
+  pixelEditorColor: hexToRgba4(DEFAULT_MESH_COLOR_HEX),
   pixelEditorPaletteId: 'pico8',
   pixelEditorCustomPalettes: [],
   pixelDocuments: {},

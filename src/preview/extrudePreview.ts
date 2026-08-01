@@ -35,6 +35,7 @@ import { LOW_POLY_CAPSULE_HEMI_RINGS } from '../primitives/capsuleMesh'
 import { primitiveSegmentsForBudget } from '../mesh/meshPolyBudget'
 import { generateVerticalShapedCapsule } from '../mesh/verticalCapsule'
 import { generatePathOutput, type PathDistributionMode, type PathOutput, type PathProfile } from '../mesh/pathOutputs'
+import { DEFAULT_MESH_COLOR } from '../material/materialTypes'
 import { generateLathe } from '../mesh/lathe'
 import { strokeToLatheProfile } from '../stroke/latheProfile'
 
@@ -137,7 +138,7 @@ export function buildExtrudePreviewGeometry(
         radius: resolveRoundedHairRadius(extrudeAmount, brushDensity),
         radialSegments: Math.max(6, Math.min(8, primitiveSegmentsForBudget(polyBudget, 7))),
         preserveSpine: true,
-        color: 0x6ecbf5,
+        color: DEFAULT_MESH_COLOR,
         tipStyle,
       })
     }
@@ -151,7 +152,7 @@ export function buildExtrudePreviewGeometry(
       return generateHairRibbon(spine, {
         halfWidth: hairHalfWidthFromBrush(brushDensity, hairStyle) * (options?.ribbonWidthScale ?? 1),
         depth: resolveHairDepth(extrudeAmount, brushDensity, hairStyle),
-        color: 0x6ecbf5,
+        color: DEFAULT_MESH_COLOR,
         flat: options?.strokeMode === 'ribbon' ? (options.ribbonFlat ?? false) : hairStyle === 'strip',
         tipStyle,
         startTipStyle: options?.strokeMode === 'ribbon' ? (options.ribbonStartTip ?? 'square') : tipStyle,
@@ -169,7 +170,7 @@ export function buildExtrudePreviewGeometry(
           radialSegments: capsuleRadialSegments(options.pathRadialSegments),
           profileRings: capsuleProfileRingsForBudget(polyBudget),
           preserveBoundary: true,
-          color: 0x6ecbf5,
+          color: DEFAULT_MESH_COLOR,
         })
       }
       const spine = preparePathCenterline(prepared.relative, polyBudget)
@@ -181,7 +182,7 @@ export function buildExtrudePreviewGeometry(
         hemiRings: LOW_POLY_CAPSULE_HEMI_RINGS,
         startCap: 'round',
         endCap: 'round',
-        color: 0x6ecbf5,
+        color: DEFAULT_MESH_COLOR,
       })
     }
 
@@ -198,7 +199,7 @@ export function buildExtrudePreviewGeometry(
         distributionMode: options.pathDistributionMode, count: options.pathCount, startPadding: options.pathStartPadding, endPadding: options.pathEndPadding,
         randomScale: options.pathRandomScale, rotation: options.pathRotation, randomRotation: options.pathRandomRotation,
         alternateRotation: options.pathAlternateRotation, mirrorAlternate: options.pathMirrorAlternate, seed: options.pathSeed,
-      }, 0x6ecbf5)
+      }, DEFAULT_MESH_COLOR)
     }
 
     const isClosed = closed ?? prepared.isClosed
@@ -213,14 +214,14 @@ export function buildExtrudePreviewGeometry(
         if (!boundary || boundary.length < 3) return null
         return extrudeSilhouette(ensureCCW(boundary), {
           depth,
-          color: 0x6ecbf5,
+          color: DEFAULT_MESH_COLOR,
         })
       }
       const path = prepareOutlineBoundary(prepared.relative, polyBudget, false)
       if (!path || path.length < 2) return null
       const ribbon = strokeToFlatOutline(path, outlineHalfWidthFromBrush(brushDensity))
       if (!ribbon || ribbon.length < 3) return null
-      return extrudeSilhouette(ribbon, { depth, color: 0x6ecbf5 })
+      return extrudeSilhouette(ribbon, { depth, color: DEFAULT_MESH_COLOR })
     }
 
     if (isClosed) {
@@ -228,7 +229,7 @@ export function buildExtrudePreviewGeometry(
       if (!boundary || boundary.length < 3) return null
       return extrudeSilhouette(ensureCCW(boundary), {
         depth,
-        color: 0x6ecbf5,
+        color: DEFAULT_MESH_COLOR,
       })
     }
 
@@ -238,7 +239,7 @@ export function buildExtrudePreviewGeometry(
       minAngleDeg: VECTOR_PEN_MIN_ANGLE_DEG,
       closed: false,
       hemiRings: LOW_POLY_CAPSULE_HEMI_RINGS,
-      color: 0x6ecbf5,
+      color: DEFAULT_MESH_COLOR,
     })
   })()
 

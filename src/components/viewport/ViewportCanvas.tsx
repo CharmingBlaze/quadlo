@@ -1,4 +1,5 @@
 import { Canvas } from '@react-three/fiber'
+import { NoToneMapping, PCFSoftShadowMap } from 'three'
 import type * as THREE from 'three'
 import { getCameraSetup } from '../../scene/viewTypes'
 import type { ViewType } from '../../store/appStore'
@@ -82,6 +83,7 @@ export function ViewportCanvas({
 
   return (
     <Canvas
+      key={isOrtho ? 'ortho' : 'perspective'}
       className="viewport-canvas-root"
       frameloop={continuousFrames ? 'always' : 'demand'}
       dpr={quality === 'high' ? ([1, 2] as [number, number]) : 1}
@@ -102,6 +104,11 @@ export function ViewportCanvas({
       }}
       onCreated={({ camera, gl }) => {
         gl.outputColorSpace = 'srgb'
+        // Linear output keeps DCC viewport shading crisp; default ACES wash lifts midtones.
+        gl.toneMapping = NoToneMapping
+        gl.toneMappingExposure = 1
+        gl.shadowMap.type = PCFSoftShadowMap
+        gl.shadowMap.enabled = true
         cameraRef.current = camera
         applyOrthoCamera(view as ViewType, camera)
       }}

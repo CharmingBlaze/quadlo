@@ -123,13 +123,15 @@ export interface ToolActivationLayoutActions {
   cancelObjectTransformModal: () => void
   applyObjectTransformModalPreview: () => void
   setModalAxisLock: (axis: 'x' | 'y' | 'z' | null) => void
+  /** Cancel in-progress draw/CAD ops or exit temporary tools. Returns true when handled. */
+  handleEscapeToolExit: () => boolean
 }
 
 export type ToolActivationSlice = ToolActivationLayoutState & ToolActivationLayoutActions
 
 export const toolActivationInitialState: ToolActivationLayoutState = {
-  activeTool: 'draw',
-  toolCategory: 'draw',
+  activeTool: 'select-object',
+  toolCategory: 'select',
   meshModal: null,
   objectTransformModal: null,
 }
@@ -152,6 +154,7 @@ type ToolStore = ToolActivationLayoutState & {
   bendCancel: () => void
   loopCutCancel: () => void
   setSelectionMode: (mode: SelectionMode) => void
+  clearVectorDraftState: () => void
   setActivePrimitiveKind: (kind: import('./vectorToolsSlice').PrimitiveKind | null) => void
   setActiveShapeKind: (kind: import('../vector/types').ShapeKind) => void
   setPolyDrawMode: (mode: import('./cadMeshToolsSlice').PolyDrawMode) => void
@@ -173,6 +176,46 @@ type ToolStore = ToolActivationLayoutState & {
   pauseHistory: () => void
   undo: () => void
   resumeHistory: () => void
+  polyDrawDraft: unknown
+  primitiveBoxDraft: unknown
+  vectorPenDraft: unknown
+  isDrawing: boolean
+  knifeDraft: { points: unknown[]; completedPaths?: unknown[] } | null
+  bendDraft: unknown
+  loopCutDraft: unknown
+  showToolRing: boolean
+  setShowToolRing: (show: boolean) => void
+  setVertexMergeModifierHeld: (held: boolean) => void
+  cancelPrimitiveBoxDraft: () => void
+  activePrimitiveKind: import('./vectorToolsSlice').PrimitiveKind | null
+}
+
+function hasMidDrawOrCadOperation(state: ToolStore): boolean {
+  if (state.polyDrawDraft) return true
+  if (state.primitiveBoxDraft) return true
+  if (state.vectorPenDraft) return true
+  if (state.isDrawing) return true
+  if (
+    state.knifeDraft &&
+    (state.knifeDraft.points.length > 0 || (state.knifeDraft.completedPaths?.length ?? 0) > 0)
+  ) {
+    return true
+  }
+  if (state.bendDraft) return true
+  if (state.loopCutDraft) return true
+  return false
+}
+
+function cancelMidDrawOrCadOperation(state: ToolStore, setPartial: (partial: object) => void) {
+  state.penCancelPath()
+  state.cancelPrimitiveBoxDraft()
+  state.polyDrawCancel()
+  state.knifeCancel()
+  state.bendCancel()
+  state.loopCutCancel()
+  if (state.isDrawing) {
+    setPartial(clearStrokeDraftState())
+  }
 }
 
 export function createToolActivationSlice<T extends ToolActivationLayoutState>(
@@ -680,6 +723,39 @@ export function createToolActivationSlice<T extends ToolActivationLayoutState>(
       store().undo()
       store().resumeHistory()
       setPartial({ objectTransformModal: null })
+    },
+
+    handleEscapeToolExit: () => {
+      const state = store()
+
+      if (state.showToolRing) {
+        state.setShowToolRing(false)
+        state.setVertexMergeModifierHeld(false)
+        return true
+      }
+      if (state.showExportDialog) {
+        setPartial({ showExportDialog: false })
+        state.setVertexMergeModifierHeld(false)
+        return true
+      }
+
+      if (hasMidDrawOrCadOperation(state)) {
+        cancelMidDrawOrCadOperation(state, setPartial)
+        state.setVertexMergeModifierHeld(false)
+        return true
+      }
+
+      if (state.toolCategory !== 'select') {
+        if (state.activePrimitiveKind) {
+          setPartial({ activePrimitiveKind: null })
+        }
+        state.activateSelectTool()
+        state.setVertexMergeModifierHeld(false)
+        return true
+      }
+
+      state.setVertexMergeModifierHeld(false)
+      return false
     },
 
   }

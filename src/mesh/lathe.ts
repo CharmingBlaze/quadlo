@@ -1,5 +1,6 @@
 import { curvatureSampleProfile } from '../stroke/rdp'
 import { type Vec2 } from '../utils/math'
+import { DEFAULT_MESH_COLOR } from '../material/materialTypes'
 import { HalfEdgeMesh } from './HalfEdgeMesh'
 
 export interface LatheOptions {
@@ -36,7 +37,7 @@ function addRingCap(
     } else {
       mesh.faces.push([ci, ring[i]!, ring[next]!])
     }
-    mesh.faceColors.push(0x6ecbf5)
+    mesh.faceColors.push(DEFAULT_MESH_COLOR)
   }
 }
 
@@ -116,13 +117,13 @@ export function generateLathe(
       for (let si = 0; si < ringB.length; si++) {
         const next = (si + 1) % ringB.length
         mesh.faces.push([ringA[0], ringB[si], ringB[next]])
-        mesh.faceColors.push(0x6ecbf5)
+        mesh.faceColors.push(DEFAULT_MESH_COLOR)
       }
     } else if (ringB.length === 1 && ringA.length > 1) {
       for (let si = 0; si < ringA.length; si++) {
         const next = (si + 1) % ringA.length
         mesh.faces.push([ringB[0], ringA[next], ringA[si]])
-        mesh.faceColors.push(0x6ecbf5)
+        mesh.faceColors.push(DEFAULT_MESH_COLOR)
       }
     } else if (ringA.length > 1 && ringB.length > 1) {
       for (let si = 0; si < segments; si++) {
@@ -133,7 +134,7 @@ export function generateLathe(
         const d = ringB[next]!
         // Quad strip like capsule — same winding as the old triangle pair (a,c,b)+(c,d,b).
         mesh.faces.push([a, c, d, b])
-        mesh.faceColors.push(0x6ecbf5)
+        mesh.faceColors.push(DEFAULT_MESH_COLOR)
       }
     }
   }

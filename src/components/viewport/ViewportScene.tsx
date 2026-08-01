@@ -6,6 +6,7 @@ import { ViewportPointerPolicy } from '../ViewportPointerPolicy'
 import { ViewportCamera } from './ViewportCamera'
 import { ViewportControls } from './ViewportControls'
 import { ViewportInvalidatorBridge, ViewportSceneInvalidator } from './ViewportInvalidator'
+import { ViewportShadowPlane, ViewportShadowRendererSync } from './ViewportShadowSetup'
 import { ViewportObjects } from './ViewportObjects'
 import { ViewportToolOverlays } from './ViewportToolOverlays'
 import type { SceneObject } from '../../mesh/HalfEdgeMesh'
@@ -97,6 +98,7 @@ export function ViewportScene({
       />
       <WebGLContextHandler />
       <ViewportPointerPolicy gizmoActive={canvasPointerEvents} />
+      <ViewportShadowRendererSync />
 
       <ViewportCamera view={view} isActiveViewport={isActiveViewport} objects={objects} />
 
@@ -112,6 +114,7 @@ export function ViewportScene({
       />
 
       {showGrid && <ViewportGrid view={view} depth={defaultDepth} />}
+      <ViewportShadowPlane view={view} />
 
       <SymmetryPlaneVisual view={view} />
 

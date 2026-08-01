@@ -23,6 +23,7 @@ import { DEFAULT_HAIR_TEXTURE_SETTINGS } from '../stroke/hairTextureSettings'
 import type { HairTipStyle, StrokeMode, SweepCapStyle } from '../store/strokeSlice'
 import type { PathDistributionMode, PathOutput, PathProfile } from '../mesh/pathOutputs'
 import { validateMeshStructure } from '../mesh/meshInvariants'
+import { DEFAULT_MESH_COLOR } from '../material/materialTypes'
 
 export { PROJECT_FILE_EXTENSION, DEFAULT_PROJECT_FILENAME, LEGACY_PROJECT_FILE_EXTENSION } from '../app/branding'
 
@@ -317,7 +318,7 @@ function parseSceneSettingsPreferences(raw: unknown): ProjectSceneSettingsState 
     drawDoubleSided: Boolean(raw.drawDoubleSided),
     closeThreshold: Number.isFinite(raw.closeThreshold) ? Number(raw.closeThreshold) : 8,
     defaultDepth: Number.isFinite(raw.defaultDepth) ? Number(raw.defaultDepth) : 0,
-    activeColor: Number.isFinite(raw.activeColor) ? Number(raw.activeColor) : 0x6ecbf5,
+    activeColor: Number.isFinite(raw.activeColor) ? Number(raw.activeColor) : DEFAULT_MESH_COLOR,
   }
 }
 
@@ -440,7 +441,7 @@ export function parseProjectFile(text: string): SerializedProjectFile {
     const record = object as Record<string, unknown>
     const faces = record.faces as unknown[]
     const supplied = Array.isArray(record.faceColors) ? record.faceColors : []
-    const fallback = Number.isFinite(record.color) ? Number(record.color) : 0x6ecbf5
+    const fallback = Number.isFinite(record.color) ? Number(record.color) : DEFAULT_MESH_COLOR
     record.faceColors = faces.map((_, faceIndex) => {
       const color = supplied[faceIndex]
       return Number.isFinite(color) ? color : fallback

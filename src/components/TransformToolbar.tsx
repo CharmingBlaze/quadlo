@@ -60,9 +60,7 @@ export function TransformToolbar() {
         }}
         title="Drag to move transform bar"
         aria-label="Move transform bar"
-      >
-        ⋮⋮
-      </div>
+      />
       <span className="transform-toolbar-label" aria-hidden>
         Selection
       </span>
@@ -78,6 +76,9 @@ export function TransformToolbar() {
         </button>
       ))}
       <span className="transform-toolbar-divider" aria-hidden />
+      <span className="transform-toolbar-label" aria-hidden>
+        Transform
+      </span>
       <button
         type="button"
         className={`transform-toolbar-btn ${isSelectTool ? 'active' : ''}`}

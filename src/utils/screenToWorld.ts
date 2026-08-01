@@ -227,6 +227,44 @@ export function buildCameraDragPlane(
   return new THREE.Plane().setFromNormalAndCoplanarPoint(_normal, throughPoint)
 }
 
+/**
+ * Vertical plane (contains world Y) whose normal is camera forward flattened onto XZ.
+ * Used for perspective CAD height drag so cursor Y tracks the rising top face.
+ */
+export function buildVerticalHeightDragPlane(
+  camera: THREE.Camera,
+  throughPoint: { x: number; y: number; z: number }
+): THREE.Plane {
+  camera.updateMatrixWorld()
+  camera.getWorldDirection(_forward)
+  let nx = _forward.x
+  let nz = _forward.z
+  let lenSq = nx * nx + nz * nz
+  if (lenSq < 1e-8) {
+    camera.matrixWorld.extractBasis(_right, _up, _forward)
+    nx = _right.x
+    nz = _right.z
+    lenSq = nx * nx + nz * nz
+    if (lenSq < 1e-8) {
+      nx = 1
+      nz = 0
+    } else {
+      const len = Math.sqrt(lenSq)
+      nx /= len
+      nz /= len
+    }
+  } else {
+    const len = Math.sqrt(lenSq)
+    nx /= len
+    nz /= len
+  }
+  _normal.set(nx, 0, nz)
+  return new THREE.Plane().setFromNormalAndCoplanarPoint(
+    _normal,
+    new THREE.Vector3(throughPoint.x, throughPoint.y, throughPoint.z)
+  )
+}
+
 /** Camera look direction (into the scene). */
 export function getCameraViewForward(camera: THREE.Camera): { x: number; y: number; z: number } {
   const dir = new THREE.Vector3()

@@ -62,6 +62,9 @@ export function getViewLabel(view: ViewType): string {
   return VIEW_LABELS[normalized]
 }
 
+/** Default orthographic zoom (Three.js: lower = wider framing). Legacy was 2 (~1.5× tighter). */
+export const DEFAULT_ORTHO_ZOOM = 2 / 1.5
+
 export function getOrthoCameraSetup(view: OrthoViewType): {
   position: [number, number, number]
   up: [number, number, number]
@@ -69,17 +72,17 @@ export function getOrthoCameraSetup(view: OrthoViewType): {
 } {
   switch (view) {
     case 'front':
-      return { position: [0, 0, 200], up: [0, 1, 0], zoom: 2 }
+      return { position: [0, 0, 200], up: [0, 1, 0], zoom: DEFAULT_ORTHO_ZOOM }
     case 'back':
-      return { position: [0, 0, -200], up: [0, 1, 0], zoom: 2 }
+      return { position: [0, 0, -200], up: [0, 1, 0], zoom: DEFAULT_ORTHO_ZOOM }
     case 'right':
-      return { position: [200, 0, 0], up: [0, 1, 0], zoom: 2 }
+      return { position: [200, 0, 0], up: [0, 1, 0], zoom: DEFAULT_ORTHO_ZOOM }
     case 'left':
-      return { position: [-200, 0, 0], up: [0, 1, 0], zoom: 2 }
+      return { position: [-200, 0, 0], up: [0, 1, 0], zoom: DEFAULT_ORTHO_ZOOM }
     case 'top':
-      return { position: [0, 200, 0], up: [0, 0, -1], zoom: 2 }
+      return { position: [0, 200, 0], up: [0, 0, -1], zoom: DEFAULT_ORTHO_ZOOM }
     case 'bottom':
-      return { position: [0, -200, 0], up: [0, 0, 1], zoom: 2 }
+      return { position: [0, -200, 0], up: [0, 0, 1], zoom: DEFAULT_ORTHO_ZOOM }
   }
 }
 

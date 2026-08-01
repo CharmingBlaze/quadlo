@@ -36,7 +36,7 @@ export function SidePanelPrimitivesMenu({
       active={primitiveToolActive && !!activePrimitiveKind}
       options={PRIMITIVE_OPTIONS.map((p) => ({ value: p.id, label: p.label }))}
       onSelect={(value) => onSelect(value as PrimitiveKind)}
-      title="Ortho: drag a base in Front/Side/Top, then drag its height in another view. Dome, ring, star, half circle, and stairs follow the CAD box you draw. Perspective: drag footprint, drag up/down or scroll height, double-click to place."
+      title="Ortho: drag a base in Front/Side/Top, then drag its height in another view. Dome, ring, star, half circle, and stairs follow the CAD box you draw. Perspective: drag footprint on the ground, then drag up for height (scroll wheel adjusts height too)."
     />
   )
 }

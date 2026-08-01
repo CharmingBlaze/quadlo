@@ -6,6 +6,11 @@ import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { TransformToolbar } from './components/TransformToolbar'
 import { PrimitivesToolbar } from './components/PrimitivesToolbar'
 import { useAppStore } from './store/appStore'
+import {
+  bootstrapToolbarPositions,
+  measureToolbarClusterWidths,
+  syncBottomToolbarCluster,
+} from './store/viewportSlice'
 import { selectionHasComponents } from './mesh/meshSelection'
 import type { NudgeDirection } from './utils/viewNavigation'
 import { AppConfirmDialog } from './components/AppConfirmDialog'
@@ -77,6 +82,50 @@ export default function App() {
   const uvEditorOpen = useAppStore((state) => state.uvEditorOpen)
 
   useEffect(() => subscribeGraphicsNotice(setGraphicsNotice), [])
+
+  useEffect(() => {
+    const state = useAppStore.getState()
+    const patch = bootstrapToolbarPositions(state)
+    if (patch) useAppStore.setState(patch)
+
+    const syncToolbarCluster = () => {
+      const measured = measureToolbarClusterWidths()
+      const next = useAppStore.getState()
+      const synced = syncBottomToolbarCluster(next, { measured, force: next.toolbarClusterAutoCenter })
+      if (synced) useAppStore.setState(synced)
+    }
+
+    const raf = requestAnimationFrame(syncToolbarCluster)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  useEffect(() => {
+    let raf = 0
+    const scheduleSync = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const measured = measureToolbarClusterWidths()
+        const state = useAppStore.getState()
+        const synced = syncBottomToolbarCluster(state, { measured })
+        if (synced) useAppStore.setState(synced)
+      })
+    }
+
+    window.addEventListener('resize', scheduleSync)
+
+    const appMain = document.querySelector('.app-main')
+    let observer: ResizeObserver | undefined
+    if (appMain instanceof HTMLElement && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(scheduleSync)
+      observer.observe(appMain)
+    }
+
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', scheduleSync)
+      observer?.disconnect()
+    }
+  }, [])
 
   const lastMousePosRef = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
 
@@ -190,30 +239,20 @@ export default function App() {
           }
           return
         }
-        state.setShowToolRing(false)
-        state.setShowExportDialog(false)
-        state.penCancelPath()
-        state.cancelPrimitiveBoxDraft()
-        state.polyDrawCancel()
-        if (state.activeTool === 'knife' || state.activeTool === 'mirror-knife') {
-          if (state.knifeDraft && (state.knifeDraft.points.length > 0 || state.knifeDraft.completedPaths?.length)) {
-            state.knifeCancel()
-          } else {
-            state.activateSelectTool()
-          }
-        } else {
-          state.knifeCancel()
+        // Sticky LightWave nav is cleared in ViewportControls; skip other Escape actions.
+        if (state.viewportStickyNav) return
+        if (state.handleEscapeToolExit()) {
+          e.preventDefault()
         }
-        state.bendCancel()
-        state.loopCutCancel()
-        state.clearMeshSelection()
-        state.setMeshHover(null)
-        state.setVertexMergeModifierHeld(false)
-        if (state.maximizedSlot !== null) state.toggleMaximizedView()
       }
       if (e.key === ' ' || e.code === 'Space') {
         const state = store()
         if (state.uvEditorOpen) return
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault()
+          state.toggleMaximizedView()
+          return
+        }
         if (state.activeTool === 'knife' || state.activeTool === 'mirror-knife') {
           e.preventDefault()
           if (state.knifeDraft && (state.knifeDraft.points.length >= 2 || state.knifeDraft.completedPaths?.length)) {

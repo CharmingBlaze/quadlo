@@ -4,7 +4,7 @@ import { OrthographicCamera, PerspectiveCamera, Vector3 } from 'three'
 import type * as THREE from 'three'
 import { useAppStore, type ViewType } from '../../store/appStore'
 import { getCameraSetup } from '../../scene/viewTypes'
-import { applyViewportFit } from '../../viewport/fitViewports'
+import { applyViewportFit, applyViewportReset } from '../../viewport/fitViewports'
 import { invalidateViewport } from '../../rendering/viewportInvalidation'
 import { useViewportRuntime } from './ViewportRuntimeContext'
 import type { SceneObject } from '../../mesh/HalfEdgeMesh'
@@ -88,6 +88,31 @@ export function ViewportFitController({ view }: { view: ViewType }) {
   return null
 }
 
+/** Applies store reset requests: restore each view's canonical orientation and zoom. */
+export function ViewportResetController({ view }: { view: ViewType }) {
+  const resetRequest = useAppStore((s) => s.viewportResetRequest)
+  const camera = useThree((s) => s.camera)
+  const controls = useThree((s) => s.controls)
+  const { slotIndex, layoutVisible } = useViewportRuntime()
+  const lastNonceRef = useRef(0)
+
+  useEffect(() => {
+    if (!resetRequest || resetRequest.nonce === lastNonceRef.current) return
+    lastNonceRef.current = resetRequest.nonce
+    const orbit =
+      controls &&
+      typeof controls === 'object' &&
+      'target' in controls &&
+      'update' in controls
+        ? (controls as { target: THREE.Vector3; update: () => void })
+        : null
+    applyViewportReset(camera, orbit, view)
+    if (layoutVisible) invalidateViewport(slotIndex, 'fit')
+  }, [resetRequest, camera, controls, view, slotIndex, layoutVisible])
+
+  return null
+}
+
 export function ViewportCamera({
   view,
   isActiveViewport,
@@ -111,6 +136,7 @@ export function ViewportCamera({
     <>
       <ViewMoveBasisSync enabled={isActiveViewport && view === 'perspective'} />
       <ViewportFitController view={view} />
+      <ViewportResetController view={view} />
     </>
   )
 }

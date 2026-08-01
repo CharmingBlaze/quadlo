@@ -3,7 +3,7 @@ import { useAppStore, type PrimitiveKind } from '../store/appStore'
 import { PRIMITIVE_KINDS } from './SidePanelPrimitivesMenu'
 import { PrimitiveIcon } from './PrimitiveIcons'
 
-/** Vertical, draggable CAD primitives palette — click a shape, then draw in the viewport. */
+/** Horizontal, draggable CAD primitives strip — click a shape, then draw in the viewport. */
 export function PrimitivesToolbar() {
   const show = useAppStore((s) => s.showPrimitivesBar)
   const position = useAppStore((s) => s.primitivesBarPosition)
@@ -60,9 +60,7 @@ export function PrimitivesToolbar() {
         }}
         title="Drag to move primitives panel"
         aria-label="Move primitives panel"
-      >
-        ⋮⋮
-      </div>
+      />
       <div className="primitives-toolbar-list">
         {PRIMITIVE_KINDS.map((primitive) => {
           const active = activeTool === 'primitive-box' && activePrimitiveKind === primitive.id

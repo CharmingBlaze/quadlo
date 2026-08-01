@@ -7,6 +7,7 @@ export interface ViewportSlotProps {
   isActive: boolean
   isHovered: boolean
   onActivate: () => void
+  onHover?: () => void
   /** False when hidden during maximize; canvas stays mounted either way. */
   layoutVisible: boolean
 }

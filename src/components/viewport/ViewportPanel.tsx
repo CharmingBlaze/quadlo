@@ -10,12 +10,13 @@ import { ViewportDomContext } from '../ViewportDomContext'
 import { useAppStore } from '../../store/appStore'
 import { getViewportBackground } from '../../theme/themes'
 import { selectionHasComponents } from '../../mesh/meshSelection'
-import type { SelectableViewType } from '../../scene/viewTypes'
+import { type SelectableViewType } from '../../scene/viewTypes'
 import { useViewportPointerHandlers } from '../../hooks/useViewportPointerHandlers'
 import {
   DEFORM_TOOLS,
   MESH_EDIT_TOOLS,
   SCULPT_TOOLS,
+  showsObjectTransformGizmo,
   TRANSFORM_GIZMO_TOOLS,
   VECTOR_TOOLS,
   canPickComponentSelection,
@@ -25,8 +26,9 @@ import { isGizmoHandlingPointer } from '../../viewport/gizmoPointerGate'
 import { ViewportRuntimeProvider } from './ViewportRuntimeContext'
 import { ViewportCanvas } from './ViewportCanvas'
 import { ViewportDomOverlays } from './ViewportDomOverlays'
-import { ViewportStats } from './ViewportStats'
-import { resolvePrimaryNavigation } from './ViewportControls'
+import { ViewportViewName } from './ViewportViewName'
+import { ViewportWindowTools } from './ViewportWindowTools'
+import { isExplicitViewportNavigation, resolveStickyNavigation } from './ViewportControls'
 import type { ViewportSlotProps } from './viewportTypes'
 import { isSceneObjectVisible } from '../../scene/objectVisibility'
 
@@ -36,6 +38,7 @@ export function ViewportPanel({
   isActive,
   isHovered,
   onActivate,
+  onHover,
   layoutVisible,
 }: ViewportSlotProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -63,14 +66,14 @@ export function ViewportPanel({
     showGrid,
     defaultDepth,
     primitiveBoxDraft,
-    roundedBoxRoundness,
-    roundedBoxSubdivisions,
     imageDropMode,
     selectedBillboardImageId,
     billboardImagesLength,
     viewportXRay,
     pixelEditorOpen,
     pixelEditorPaintOnModel,
+    gizmoVisible,
+    viewportStickyNav,
     setActiveView,
     setViewportSlotView,
   } = useAppStore(
@@ -89,14 +92,14 @@ export function ViewportPanel({
       showGrid: s.showGrid,
       defaultDepth: s.defaultDepth,
       primitiveBoxDraft: s.primitiveBoxDraft,
-      roundedBoxRoundness: s.roundedBoxRoundness,
-      roundedBoxSubdivisions: s.roundedBoxSubdivisions,
       imageDropMode: s.imageDropMode,
       selectedBillboardImageId: s.selectedBillboardImageId,
       billboardImagesLength: s.billboardImages.length,
       viewportXRay: s.viewportXRay,
       pixelEditorOpen: s.pixelEditorOpen,
       pixelEditorPaintOnModel: s.pixelEditorPaintOnModel,
+      gizmoVisible: s.gizmoVisible,
+      viewportStickyNav: s.viewportStickyNav,
       setActiveView: s.setActiveView,
       setViewportSlotView: s.setViewportSlotView,
     }))
@@ -152,13 +155,13 @@ export function ViewportPanel({
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
+    handlePointerCancel,
     handlePointerLeave,
     handleDragOver,
     handleDragLeave,
     handleDrop,
     imageDragOver,
-    perspectivePrimitiveScrollHeight,
-    roundedBoxParamWheel,
+    perspectivePrimitiveHeightAdjust,
   } = useViewportPointerHandlers({
     view,
     onActivate,
@@ -168,20 +171,15 @@ export function ViewportPanel({
     cameraRef,
   })
 
-  const selectedObj = objects.find((o) => o.id === selectedObjectId)
   const selectedObjectsVisible = selectionObjectIds.every((id) => {
     const object = objects.find((entry) => entry.id === id)
     return object ? isSceneObjectVisible(object) : false
   })
-  const vertCount = useMemo(
-    () => objects.reduce((s, o) => s + o.positions.length, 0),
-    [objects]
-  )
   const selectedObjectSet = useMemo(
     () => new Set(selectionObjectIds),
     [selectionObjectIds]
   )
-  const gizmoTargetId = isActiveViewport && !pixelPaintActive
+  const gizmoTargetId = !pixelPaintActive
     ? selectionHasComponents(meshSelection) && isComponentSelectionMode(selectionMode)
       ? meshSelection!.objectId
       : selectionObjectIds.length === 1
@@ -195,25 +193,25 @@ export function ViewportPanel({
       : null
 
   const objectGizmoActive =
-    isActiveViewport &&
+    gizmoVisible &&
     !pixelPaintActive &&
     selectionMode === 'object' &&
     selectionObjectIds.length === 1 &&
     selectedObjectsVisible &&
-    TRANSFORM_GIZMO_TOOLS.includes(activeTool) &&
+    showsObjectTransformGizmo(activeTool) &&
     !selectionHasComponents(meshSelection)
 
   const multiObjectGizmoActive =
-    isActiveViewport &&
+    gizmoVisible &&
     !pixelPaintActive &&
     selectionMode === 'object' &&
     selectionObjectIds.length > 1 &&
     selectedObjectsVisible &&
-    TRANSFORM_GIZMO_TOOLS.includes(activeTool) &&
+    showsObjectTransformGizmo(activeTool) &&
     !selectionHasComponents(meshSelection)
 
   const componentGizmoActive =
-    isActiveViewport &&
+    gizmoVisible &&
     !pixelPaintActive &&
     isComponentSelectionMode(selectionMode) &&
     componentGizmoObject != null &&
@@ -224,10 +222,10 @@ export function ViewportPanel({
   const transformGizmoActive = objectGizmoActive || multiObjectGizmoActive || componentGizmoActive
 
   const billboardGizmoActive =
-    isActiveViewport &&
+    gizmoVisible &&
     !pixelPaintActive &&
     !!selectedBillboardImageId &&
-    TRANSFORM_GIZMO_TOOLS.includes(activeTool)
+    showsObjectTransformGizmo(activeTool)
 
   const billboardPickActive =
     isActiveViewport &&
@@ -241,35 +239,40 @@ export function ViewportPanel({
   // direct pointer target, including inactive orthographic panes.
   const canvasPointerEvents = viewportGizmoActive || billboardPickActive || pixelPaintActive
 
-  const cursorClass =
-    selectionMode === 'object' && activeTool === 'select-object'
-      ? 'cursor-select'
-      : isComponentSelectionMode(selectionMode) && canPickComponentSelection(activeTool)
-        ? 'cursor-select'
-        : TRANSFORM_GIZMO_TOOLS.includes(activeTool)
-          ? 'cursor-transform'
-          : VECTOR_TOOLS.includes(activeTool)
-            ? 'cursor-crosshair'
-            : MESH_EDIT_TOOLS.includes(activeTool) || DEFORM_TOOLS.includes(activeTool)
-              ? 'cursor-crosshair'
-              : SCULPT_TOOLS.includes(activeTool)
-              ? 'cursor-sculpt'
-              : ''
+  const isPerspectiveView = view === 'perspective'
+  const armedStickyNav = isActive ? resolveStickyNavigation(viewportStickyNav, isPerspectiveView) : null
 
-  const statsLabel = perspectivePrimitiveScrollHeight
-    ? `Drag or scroll height (${(primitiveBoxDraft?.scrollHeight ?? 4).toFixed(1)}) · double-click to place`
-    : roundedBoxParamWheel
-      ? `Rounded box · sub ${roundedBoxSubdivisions} · round ${Math.round(roundedBoxRoundness * 100)}% · scroll / Shift+scroll`
-      : selectedObj
-        ? `${selectedObj.name} · ${selectedObj.positions.length}v${
-            selectionObjectIds.length > 1 ? ` · ${selectionObjectIds.length} selected` : ''
-          }`
-        : `${vertCount}v total${
-            selectionObjectIds.length > 1 ? ` · ${selectionObjectIds.length} selected` : ''
-          }`
+  const cursorClass =
+    armedStickyNav === 'pan'
+      ? 'sticky-nav-pan'
+      : armedStickyNav === 'orbit'
+        ? 'sticky-nav-orbit'
+        : armedStickyNav === 'dolly'
+          ? 'sticky-nav-dolly'
+          : selectionMode === 'object' && activeTool === 'select-object'
+            ? 'cursor-select'
+            : isComponentSelectionMode(selectionMode) && canPickComponentSelection(activeTool)
+              ? 'cursor-select'
+              : TRANSFORM_GIZMO_TOOLS.includes(activeTool)
+                ? 'cursor-transform'
+                : VECTOR_TOOLS.includes(activeTool)
+                  ? 'cursor-crosshair'
+                  : MESH_EDIT_TOOLS.includes(activeTool) || DEFORM_TOOLS.includes(activeTool)
+                    ? 'cursor-crosshair'
+                    : SCULPT_TOOLS.includes(activeTool)
+                      ? 'cursor-sculpt'
+                      : ''
 
   const isCameraNavigationGesture = (e: React.PointerEvent) =>
-    e.button === 0 && resolvePrimaryNavigation(e, view === 'perspective') != null
+    isExplicitViewportNavigation(
+      e,
+      e.target,
+      isPerspectiveView,
+      viewportStickyNav,
+      selectionMode,
+      activeTool,
+      perspectivePrimitiveHeightAdjust
+    )
 
   const handleViewportPointerDown = (e: React.PointerEvent) => {
     if (isCameraNavigationGesture(e)) {
@@ -311,6 +314,18 @@ export function ViewportPanel({
     handlePointerUp(e)
   }
 
+  const handleViewportPointerCancel = (e: React.PointerEvent) => {
+    if (cameraNavigationGestureRef.current) {
+      cameraNavigationGestureRef.current = false
+      return
+    }
+    handlePointerCancel(e)
+  }
+
+  const handleViewportLostPointerCapture = (e: React.PointerEvent) => {
+    if (e.button === 0) handlePointerCancel(e)
+  }
+
   const handleViewportPointerLeave = (e: React.PointerEvent) => {
     if (cameraNavigationGestureRef.current) {
       cameraNavigationGestureRef.current = false
@@ -321,6 +336,7 @@ export function ViewportPanel({
   }
 
   const handleViewportPointerEnter = () => {
+    onHover?.()
     // In paint mode, hovering a pane selects its camera before the first pixel
     // is placed. This makes the active paint view visibly follow the mouse.
     if (pixelPaintActive && !isActive) onActivate()
@@ -335,27 +351,44 @@ export function ViewportPanel({
       onPointerDown={handleViewportPointerDown}
       onPointerMove={handleViewportPointerMove}
       onPointerUp={handleViewportPointerUp}
+      onPointerCancel={handleViewportPointerCancel}
+      onLostPointerCapture={handleViewportLostPointerCapture}
       onPointerLeave={handleViewportPointerLeave}
+      onAuxClick={(e) => {
+        if (e.button === 1 && !perspectivePrimitiveHeightAdjust) e.preventDefault()
+      }}
       onWheelCapture={!isActive ? onActivate : undefined}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onContextMenu={
-        view === 'perspective' ||
-        activeTool === 'knife' ||
-        activeTool === 'mirror-knife' ||
-        activeTool === 'poly-draw' ||
-        activeTool === 'extrude'
-          ? (e) => e.preventDefault()
-          : undefined
-      }
+      onContextMenu={(e) => {
+        if (marqueeRect) {
+          e.preventDefault()
+          return
+        }
+        if (
+          view === 'perspective' ||
+          activeTool === 'knife' ||
+          activeTool === 'mirror-knife' ||
+          activeTool === 'poly-draw' ||
+          activeTool === 'extrude'
+        ) {
+          e.preventDefault()
+        }
+      }}
       title={
         view === 'perspective'
-          ? 'Alt + left-drag to orbit · Shift + Alt or Ctrl + left-drag to pan · two-finger scroll to zoom'
-          : 'Shift + Alt or Ctrl + left-drag to pan · two-finger scroll to zoom'
+          ? 'Left-drag to orbit · Right-drag to pan · Ctrl+left-drag to box-select · Middle-drag to pan · Scroll to zoom'
+          : 'Left-drag to pan · Ctrl+left-drag to box-select · Middle-drag to pan · Scroll to zoom'
       }
     >
-      <ViewportStats view={view} statsLabel={statsLabel} onSelectView={handleSelectView} />
+      <ViewportViewName
+        view={view}
+        slotIndex={slotIndex}
+        isActive={isActive}
+        onSelectView={handleSelectView}
+      />
+      <ViewportWindowTools view={view} slotIndex={slotIndex} onActivate={onActivate} />
 
       <ViewportDomOverlays
         view={view}
@@ -379,8 +412,8 @@ export function ViewportPanel({
               containerRef={containerRef}
               cameraRef={cameraRef}
               canvasPointerEvents={canvasPointerEvents}
-              enableZoom={!perspectivePrimitiveScrollHeight}
-              disableMiddlePan={perspectivePrimitiveScrollHeight}
+              enableZoom={!perspectivePrimitiveHeightAdjust}
+              disableMiddlePan={perspectivePrimitiveHeightAdjust}
               isActiveViewport={isActiveViewport}
               showToolPreviews={showToolPreviews}
               objects={objects}

@@ -26,6 +26,7 @@ pre,
 
 /* Soft default radius mapping for common chrome */
 .transform-toolbar,
+.primitives-toolbar,
 .side-panel,
 .toolbar-btn,
 .theme-select,
@@ -36,6 +37,9 @@ pre,
   border-radius: var(--radius);
 }
 
+/* Side panel compact scale tokens (--sp-*) are defined on `.side-panel` in App.css.
+   Theme rules below should override colors/borders only, not control heights. */
+
 /* File / export dialogs stay square (Adobe-like), independent of theme radius */
 .export-dialog,
 .ie-dialog,
@@ -44,7 +48,9 @@ pre,
 }
 
 .transform-toolbar-btn,
-.transform-toolbar-close {
+.transform-toolbar-close,
+.primitives-toolbar-btn,
+.primitives-toolbar-close {
   border-radius: max(0px, calc(var(--radius) - 2px));
 }
 
@@ -427,7 +433,7 @@ html[data-theme='genesis'] .side-panel .side-btn.active {
   background: #e60012;
   color: #ffffff;
   border-color: #000000;
-  box-shadow: 0 0 12px rgb(230 0 18 / 45%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 18%);
   font-weight: 700;
 }
 
@@ -708,10 +714,8 @@ html[data-theme='ps2'] .side-panel .side-btn.active {
   border-color: #80b0f0;
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 22%),
-    0 0 16px rgb(80 144 240 / 50%),
-    0 0 0 1px #30d898;
+    inset 0 -2px 0 #183878;
   font-weight: 700;
-  text-shadow: 0 0 8px rgb(128 192 255 / 45%);
 }
 
 html[data-theme='ps2'] .transform-toolbar {
@@ -812,10 +816,8 @@ html[data-theme='ps3'] .side-panel .side-btn.active {
   border-color: #80e0ff;
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 35%),
-    0 0 20px rgb(0 168 232 / 50%),
-    0 0 0 1px #40c878;
+    inset 0 -2px 0 #006888;
   font-weight: 700;
-  text-shadow: 0 0 10px rgb(255 255 255 / 28%);
 }
 
 html[data-theme='ps3'] .transform-toolbar {
@@ -2626,3 +2628,365 @@ html[data-theme='pixa-amiga'] .toolbar-btn.active {
   color: #0a1828;
 }
 
+
+/* ── Studio profile — flat token chrome (Classic, Studio, pixaCAD) ─────── */
+html[data-theme-profile='studio'] .side-panel,
+html[data-theme-profile='studio'] .transform-toolbar,
+html[data-theme-profile='studio'] .primitives-toolbar,
+html[data-theme-profile='studio'] .tool-ring-branch,
+html[data-theme-profile='studio'] .floating-panel,
+html[data-theme-profile='studio'] .viewport-lw-tools {
+  border-radius: var(--radius);
+  border-color: var(--border);
+  background: var(--bg-panel);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 22%);
+}
+
+html[data-theme-profile='studio'] .side-panel {
+  border-left: 1px solid var(--border);
+  box-shadow: none;
+}
+
+html[data-theme-profile='studio'] .side-panel-tab.active,
+html[data-theme-profile='studio'] .side-sub-tab.active,
+html[data-theme-profile='studio'] .side-panel .side-btn.active,
+html[data-theme-profile='studio'] .side-panel .side-history-btn.active,
+html[data-theme-profile='studio'] .transform-toolbar-btn.active,
+html[data-theme-profile='studio'] .primitives-toolbar-btn.active,
+html[data-theme-profile='studio'] .tool-ring-branch-item.active,
+html[data-theme-profile='studio'] .viewport-lw-btn[aria-pressed='true'] {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+html[data-theme-profile='studio'] .side-panel .side-btn,
+html[data-theme-profile='studio'] .side-panel .side-history-btn,
+html[data-theme-profile='studio'] .side-panel .side-btn-dropdown,
+html[data-theme-profile='studio'] .transform-toolbar-btn,
+html[data-theme-profile='studio'] .primitives-toolbar-btn,
+html[data-theme-profile='studio'] .tool-ring-branch-item,
+html[data-theme-profile='studio'] .side-panel input:not([type='range']):not([type='checkbox']):not([type='color']),
+html[data-theme-profile='studio'] .side-panel select,
+html[data-theme-profile='studio'] .side-panel textarea {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-panel) 82%, var(--bg-dark));
+}
+
+html[data-theme-profile='studio'] .viewport-layout {
+  background: var(--viewport-gutter, var(--bg-dark));
+}
+
+html[data-theme-profile='studio'] .viewport-splitter {
+  background: var(--viewport-gutter, var(--bg-dark));
+}
+
+html[data-theme-profile='studio'] .viewport-panel {
+  background: var(--viewport-bg);
+  box-shadow: none;
+}
+
+html[data-theme-profile='studio'] .viewport-panel.active {
+  background: var(--viewport-active-bg, var(--viewport-bg));
+  box-shadow: inset 0 0 0 1px var(--viewport-active-edge, var(--accent));
+}
+
+html[data-theme-profile='studio'] .viewport-panel.hovered:not(.active) {
+  box-shadow: inset 0 0 0 1px var(--viewport-hover-edge, color-mix(in srgb, var(--accent) 32%, transparent));
+}
+
+html[data-theme-profile='playful'] .side-panel,
+html[data-theme-profile='playful'] .transform-toolbar,
+html[data-theme-profile='playful'] .tool-ring-branch {
+  border-radius: var(--radius);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* ── Painter (Substance 3D Painter–like default) ─────────────────────────── */
+html[data-theme='quadlo-default'] {
+  --scrollbar-radius: 0px;
+  --scrollbar-size: 9px;
+}
+
+html[data-theme='quadlo-default'] .side-panel {
+  border-left: 1px solid #2a2a2a;
+  box-shadow: none;
+}
+
+html[data-theme='quadlo-default'] .side-panel-header,
+html[data-theme='quadlo-default'] .floating-panel-titlebar,
+html[data-theme='quadlo-default'] .uv-workspace-header {
+  border-bottom-color: #2a2a2a;
+}
+
+html[data-theme='quadlo-default'] .side-panel-tabs {
+  background: #2a2a2a;
+}
+
+html[data-theme='quadlo-default'] .side-panel-tab {
+  min-height: 32px;
+  color: #909090;
+}
+
+html[data-theme='quadlo-default'] .side-panel-tab:hover {
+  color: #d4d4d4;
+  background: #333333;
+}
+
+html[data-theme='quadlo-default'] .side-panel-tab.active {
+  color: #d4d4d4;
+  background: #333333;
+  border-bottom-color: transparent;
+  box-shadow: inset 0 -2px 0 #378ef0;
+}
+
+html[data-theme='quadlo-default'] .side-sub-tabs-bar {
+  background: #333333;
+  border-bottom-color: #2a2a2a;
+  backdrop-filter: none;
+}
+
+html[data-theme='quadlo-default'] .side-sub-tab {
+  border-radius: 2px;
+  border-color: #3a3a3a;
+  background: #252525;
+  color: #909090;
+}
+
+html[data-theme='quadlo-default'] .side-sub-tab:hover {
+  border-color: #454545;
+  background: #2d2d2d;
+  color: #d4d4d4;
+}
+
+html[data-theme='quadlo-default'] .side-sub-tab.active {
+  color: #d4d4d4;
+  border-color: #3a3a3a;
+  background: #333333;
+  box-shadow: inset 0 -2px 0 #378ef0;
+}
+
+html[data-theme='quadlo-default'] .side-panel .side-btn,
+html[data-theme='quadlo-default'] .side-panel .side-history-btn,
+html[data-theme='quadlo-default'] .side-panel .side-btn-dropdown,
+html[data-theme='quadlo-default'] .side-panel input:not([type='range']):not([type='checkbox']):not([type='color']),
+html[data-theme='quadlo-default'] .side-panel select,
+html[data-theme='quadlo-default'] .side-panel textarea {
+  border-radius: 2px;
+  border-color: #3a3a3a;
+  background: #252525;
+  color: #d4d4d4;
+}
+
+html[data-theme='quadlo-default'] .side-panel .side-btn:hover,
+html[data-theme='quadlo-default'] .side-panel .side-history-btn:hover,
+html[data-theme='quadlo-default'] .side-panel .side-btn-dropdown:hover {
+  border-color: #454545;
+  background: #2d2d2d;
+  color: #d4d4d4;
+}
+
+html[data-theme='quadlo-default'] .side-panel .side-btn.active,
+html[data-theme='quadlo-default'] .side-panel .side-history-btn.active {
+  border-color: #454545;
+  background: #3a3a3a;
+  color: #d4d4d4;
+  box-shadow: inset 0 -2px 0 #378ef0;
+}
+
+html[data-theme='quadlo-default'] .side-panel .side-section-toggle {
+  min-height: 32px;
+  background: #383838;
+  border-top-color: transparent;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+html[data-theme='quadlo-default'] .transform-toolbar,
+html[data-theme='quadlo-default'] .primitives-toolbar,
+html[data-theme='quadlo-default'] .floating-panel,
+html[data-theme='quadlo-default'] .px-float-toolbar,
+html[data-theme='quadlo-default'] .tool-ring-branch,
+html[data-theme='quadlo-default'] .viewport-view-picker-menu {
+  border-radius: 2px;
+  border-color: #3a3a3a;
+  background: #333333;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 28%);
+}
+
+html[data-theme='quadlo-default'] .transform-toolbar-handle,
+html[data-theme='quadlo-default'] .primitives-toolbar-handle {
+  color: #707070;
+}
+
+html[data-theme='quadlo-default'] .transform-toolbar-handle:hover,
+html[data-theme='quadlo-default'] .primitives-toolbar-handle:hover {
+  background: #3a3a3a;
+}
+
+html[data-theme='quadlo-default'] .transform-toolbar-btn,
+html[data-theme='quadlo-default'] .transform-toolbar-close,
+html[data-theme='quadlo-default'] .primitives-toolbar-btn,
+html[data-theme='quadlo-default'] .primitives-toolbar-close,
+html[data-theme='quadlo-default'] .tool-ring-branch-item {
+  border-radius: 2px;
+  border-color: #3a3a3a;
+  background: #252525;
+  color: #d4d4d4;
+}
+
+html[data-theme='quadlo-default'] .transform-toolbar-btn:hover,
+html[data-theme='quadlo-default'] .transform-toolbar-close:hover,
+html[data-theme='quadlo-default'] .primitives-toolbar-btn:hover,
+html[data-theme='quadlo-default'] .primitives-toolbar-close:hover,
+html[data-theme='quadlo-default'] .tool-ring-branch-item:hover:not(:disabled) {
+  border-color: #454545;
+  background: #2d2d2d;
+  color: #d4d4d4;
+}
+
+html[data-theme='quadlo-default'] .transform-toolbar-btn.active,
+html[data-theme='quadlo-default'] .primitives-toolbar-btn.active,
+html[data-theme='quadlo-default'] .tool-ring-branch-item.active {
+  border-color: #3a3a3a;
+  background: #3a3a3a;
+  color: #d4d4d4;
+  box-shadow: inset 0 -2px 0 #378ef0;
+}
+
+html[data-theme='quadlo-default'] .viewport-layout {
+  background: #2a2a2a;
+  --viewport-gutter: #2a2a2a;
+  --viewport-splitter-line: #383838;
+  --viewport-splitter-hover: color-mix(in srgb, #378ef0 42%, #333333);
+  --viewport-hover-edge: color-mix(in srgb, #378ef0 32%, transparent);
+  --viewport-active-edge: #378ef0;
+  --viewport-active-bg: color-mix(in srgb, #2c2c2c 92%, #ffffff 8%);
+}
+
+html[data-theme='quadlo-default'] .viewport-splitter {
+  background: #2a2a2a;
+}
+
+html[data-theme='quadlo-default'] .viewport-panel {
+  background: #2c2c2c;
+  box-shadow: none;
+}
+
+html[data-theme='quadlo-default'] .viewport-panel.active {
+  background: var(--viewport-active-bg, #2c2c2c);
+  box-shadow: inset 0 0 0 1px #378ef0;
+}
+
+html[data-theme='quadlo-default'] .viewport-panel.hovered:not(.active) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #378ef0 32%, transparent);
+}
+
+html[data-theme='quadlo-default'] .viewport-layout.maximized .viewport-panel {
+  box-shadow: none;
+  background: #2c2c2c;
+}
+
+html[data-theme='quadlo-default'] .viewport-label {
+  color: #909090;
+}
+
+html[data-theme='quadlo-default'] .viewport-view-picker-trigger {
+  border-color: #3a3a3a;
+  background: color-mix(in srgb, #333333 94%, transparent);
+  backdrop-filter: none;
+  border-radius: 2px;
+}
+
+html[data-theme='quadlo-default'] .viewport-view-picker-trigger.is-active-pane {
+  color: #d4d4d4;
+  background: color-mix(in srgb, #378ef0 10%, #333333);
+  border-color: color-mix(in srgb, #378ef0 28%, #3a3a3a);
+}
+
+html[data-theme='quadlo-default'] .viewport-lw-tools {
+  border-color: #3a3a3a;
+  background: #333333;
+  backdrop-filter: none;
+  border-radius: 2px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 28%);
+}
+
+html[data-theme='quadlo-default'] .viewport-lw-divider {
+  background: #3a3a3a;
+}
+
+html[data-theme='quadlo-default'] .viewport-lw-btn:hover:not(:disabled) {
+  border-color: #454545;
+  background: #2d2d2d;
+  color: #d4d4d4;
+}
+
+html[data-theme='quadlo-default'] .viewport-lw-btn:disabled {
+  color: #666666;
+  opacity: 1;
+}
+
+html[data-theme='quadlo-default'] .viewport-lw-btn[aria-pressed='true'] {
+  background: #3a3a3a;
+  border-color: #454545;
+  box-shadow: inset 0 -2px 0 #378ef0;
+}
+
+html[data-theme='quadlo-default'] .floating-panel-titlebar {
+  height: 26px;
+  background: #2d2d2d;
+}
+
+html[data-theme='quadlo-default'] .floating-panel-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #909090;
+}
+
+html[data-theme='quadlo-default'] .mesh-modal-hud {
+  background: #333333;
+  border-radius: 2px;
+}
+
+html[data-theme='quadlo-default'] .side-button-dropdown-menu,
+html[data-theme='quadlo-default'] .side-theme-dropdown-menu {
+  border-radius: 2px;
+  border-color: #3a3a3a;
+  background: #333333;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 36%);
+}
+
+html[data-theme='quadlo-default'] .side-button-dropdown-item:hover,
+html[data-theme='quadlo-default'] .side-button-dropdown-item.active {
+  background: #3a3a3a;
+  color: #d4d4d4;
+}
+
+html[data-theme='quadlo-default'] .export-dialog,
+html[data-theme='quadlo-default'] .ie-dialog,
+html[data-theme='quadlo-default'] .bb-dialog,
+html[data-theme='quadlo-default'] .modal {
+  border-radius: 0;
+  border-color: #3a3a3a;
+  background: #333333;
+}
+
+html[data-theme='quadlo-default'] ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  background: #454545;
+}
+
+html[data-theme='quadlo-default'] ::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+html[data-theme='quadlo-default'] ::-webkit-scrollbar-track {
+  background: #2d2d2d;
+}

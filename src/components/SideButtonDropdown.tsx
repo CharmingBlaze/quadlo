@@ -1,11 +1,14 @@
 import {
   Fragment,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
 
 export type SideButtonDropdownOption = {
   value: string
@@ -50,8 +53,11 @@ export function SideButtonDropdown({
 }: SideButtonDropdownProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({})
+  const opensUp = menuClassName?.includes('side-theme-dropdown-menu') ?? false
 
   const selected = value ? options.find((opt) => opt.value === value) : undefined
   const triggerLabel = alwaysShowLabel
@@ -60,10 +66,57 @@ export function SideButtonDropdown({
       : label
     : (selected?.label ?? label)
 
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return
+
+    const updatePosition = () => {
+      const trigger = triggerRef.current
+      if (!trigger) return
+      const rect = trigger.getBoundingClientRect()
+      const menuWidth = rect.width
+      let left = rect.left
+      if (left + menuWidth > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - menuWidth - 8)
+      }
+
+      if (opensUp) {
+        const menuHeight = menuRef.current?.offsetHeight ?? options.length * 28 + 8
+        setMenuStyle({
+          position: 'fixed',
+          left,
+          width: menuWidth,
+          top: Math.max(8, rect.top - menuHeight - 2),
+          zIndex: 10050,
+          maxHeight: 'min(320px, 50vh)',
+        })
+      } else {
+        setMenuStyle({
+          position: 'fixed',
+          top: rect.bottom + 2,
+          left,
+          width: menuWidth,
+          zIndex: 10050,
+        })
+      }
+    }
+
+    updatePosition()
+    const raf = window.requestAnimationFrame(updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    window.addEventListener('resize', updatePosition)
+    return () => {
+      window.cancelAnimationFrame(raf)
+      window.removeEventListener('scroll', updatePosition, true)
+      window.removeEventListener('resize', updatePosition)
+    }
+  }, [open, opensUp, options.length])
+
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return
+      const target = event.target as Node
+      if (rootRef.current?.contains(target)) return
+      if (menuRef.current?.contains(target)) return
       setOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
@@ -146,43 +199,47 @@ export function SideButtonDropdown({
           ▾
         </span>
       </button>
-      {open && (
-        <div
-          className={`side-button-dropdown-menu${menuClassName ? ` ${menuClassName}` : ''}`}
-          role="menu"
-          onKeyDown={handleMenuKeyDown}
-        >
-          {options.map((opt, index) => {
-            const prevGroup = options[index - 1]?.group
-            const showGroup = Boolean(opt.group && opt.group !== prevGroup)
-            return (
-              <Fragment key={opt.value}>
-                {showGroup && (
-                  <div className="side-button-dropdown-group" role="presentation">
-                    {opt.group}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  ref={(element) => {
-                    itemRefs.current[index] = element
-                  }}
-                  role="menuitem"
-                  className={`side-button-dropdown-item ${opt.value === value ? 'active' : ''}`}
-                  disabled={opt.disabled}
-                  onClick={() => {
-                    if (opt.disabled) return
-                    onSelect(opt.value)
-                    setOpen(false)
-                  }}
-                >
-                  {opt.label}
-                </button>
-              </Fragment>
-            )
-          })}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className={`side-button-dropdown-menu side-button-dropdown-menu-portal${menuClassName ? ` ${menuClassName}` : ''}`}
+            style={menuStyle}
+            role="menu"
+            onKeyDown={handleMenuKeyDown}
+          >
+            {options.map((opt, index) => {
+              const prevGroup = options[index - 1]?.group
+              const showGroup = Boolean(opt.group && opt.group !== prevGroup)
+              return (
+                <Fragment key={opt.value}>
+                  {showGroup && (
+                    <div className="side-button-dropdown-group" role="presentation">
+                      {opt.group}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    ref={(element) => {
+                      itemRefs.current[index] = element
+                    }}
+                    role="menuitem"
+                    className={`side-button-dropdown-item ${opt.value === value ? 'active' : ''}`}
+                    disabled={opt.disabled}
+                    onClick={() => {
+                      if (opt.disabled) return
+                      onSelect(opt.value)
+                      setOpen(false)
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                </Fragment>
+              )
+            })}
+          </div>,
+          document.body
+        )}
       {footer}
     </div>
   )

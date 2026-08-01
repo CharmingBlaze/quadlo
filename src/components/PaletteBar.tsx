@@ -65,21 +65,6 @@ export function PaletteBar({ variant = 'bar' }: PaletteBarProps) {
   }, [objects, selectionObjectIds, selectedObjectId])
   const tintStrength = texturedSelection[0]?.material?.textureTintStrength ?? 0.5
 
-  const swatches = (
-    <div className="palette-swatches">
-      {PALETTE.map((color, index) => (
-        <button
-          key={`${color}-${index}`}
-          type="button"
-          className={`palette-swatch ${displayColor === color ? 'active' : ''}`}
-          style={{ background: colorToHex(color) }}
-          onClick={() => setActiveColor(color)}
-          title={colorToHex(color)}
-        />
-      ))}
-    </div>
-  )
-
   const customPicker = (
     <label
       className={`palette-custom ${recoloring ? 'palette-custom-recolor' : ''}`}
@@ -98,6 +83,22 @@ export function PaletteBar({ variant = 'bar' }: PaletteBarProps) {
         onChange={(e) => setActiveColor(parseInt(e.target.value.slice(1), 16))}
       />
     </label>
+  )
+
+  const swatches = (
+    <div className="palette-swatches">
+      {PALETTE.map((color, index) => (
+        <button
+          key={`${color}-${index}`}
+          type="button"
+          className={`palette-swatch ${displayColor === color ? 'active' : ''}`}
+          style={{ background: colorToHex(color) }}
+          onClick={() => setActiveColor(color)}
+          title={colorToHex(color)}
+        />
+      ))}
+      {variant === 'side' ? customPicker : null}
+    </div>
   )
 
   if (variant !== 'side') {
@@ -129,7 +130,6 @@ export function PaletteBar({ variant = 'bar' }: PaletteBarProps) {
       </button>
       <div id={contentId} className="palette-minimize-body" hidden={collapsed}>
         <div className="palette-scroll-box themed-scroll">{swatches}</div>
-        {customPicker}
         {texturedSelection.length > 0 && (
           <label className="palette-texture-tint">
             <span>Texture color amount <output>{Math.round(tintStrength * 100)}%</output></span>

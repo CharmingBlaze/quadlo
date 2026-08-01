@@ -89,7 +89,11 @@ export function rgba4ToNumber([r, g, b]: Rgba4): number {
   return (ri << 16) | (gi << 8) | bi
 }
 
-export function defaultMaterial(color = 0x6ecbf5): Material {
+/** Classic DCC clay grey — default tint for newly created mesh geometry. */
+export const DEFAULT_MESH_COLOR = 0xa8a8a8
+export const DEFAULT_MESH_COLOR_HEX = '#a8a8a8'
+
+export function defaultMaterial(color = DEFAULT_MESH_COLOR): Material {
   return {
     mode: 'solid',
     solidColor: numberToRgba4(color),

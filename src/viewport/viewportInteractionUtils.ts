@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import type * as THREE from 'three'
+import type { Camera } from 'three'
 import type { SceneObject } from '../mesh/HalfEdgeMesh'
 import type { ObjectTransform } from '../mesh/HalfEdgeMesh'
 import type { MeshComponentSelection } from '../mesh/meshSelection'
@@ -10,18 +11,165 @@ import { resolveEffectiveMaterial } from '../material/materials'
 import { pickMeshSurfaceUv, uvToPixelCoords } from '../pixel/uvPaint'
 import {
   buildCameraDragPlane,
+  buildVerticalHeightDragPlane,
   clientToCameraPlane,
   clientToPlane,
   planeToWorld3D,
 } from '../utils/screenToWorld'
+import { snapWorldToSceneGrid } from '../polyDraw/polyDrawSnap'
+import { axisComponent, boundsCenter, type Axis } from '../primitives/viewAxes'
+import type { WorldBox } from '../primitives/primitiveBoxMath'
 import type { Vec3 } from '../utils/math'
-import type { ViewType } from '../scene/viewTypes'
+import type { ViewType, ViewportSlotIndex } from '../scene/viewTypes'
 import type { ActiveTool, SelectionMode } from '../store/appStore'
+import type { ViewportStickyNav } from '../store/viewportSlice'
+import { pickObjectAt } from '../select/objectPick'
+import { pickMeshComponent } from '../select/meshPick'
+import { selectionHasComponents } from '../mesh/meshSelection'
+
+const MIN_PRIMITIVE_HEIGHT = 0.5
 
 export const DRAW_TOOLS: ActiveTool[] = ['draw', 'boolean-hole']
 export const VECTOR_TOOLS: ActiveTool[] = ['vector-pen', 'vector-shape', 'primitive-box', 'poly-draw']
+
+/** Tools that draw via plain LMB in the viewport (OrbitControls must leave LEFT idle). */
+export const VIEWPORT_CAD_DRAW_TOOLS: ActiveTool[] = [...VECTOR_TOOLS, ...DRAW_TOOLS]
+
+export function isViewportCadDrawTool(tool: ActiveTool): boolean {
+  return VIEWPORT_CAD_DRAW_TOOLS.includes(tool)
+}
+
+/** Tools that own plain LMB — OrbitControls must never map LEFT while active. */
+export function isViewportLmbToolOwner(tool: ActiveTool): boolean {
+  return (
+    isViewportCadDrawTool(tool) ||
+    SCULPT_TOOLS.includes(tool) ||
+    MESH_EDIT_TOOLS.includes(tool) ||
+    DEFORM_TOOLS.includes(tool) ||
+    tool === 'round' ||
+    tool === 'extrude'
+  )
+}
+
+/** Screen-space movement below this is a click; above starts orbit/pan or object drag. */
+export const VIEWPORT_CLICK_DRAG_THRESHOLD_PX = 8
+
+/** Plain LMB on select/transform tools uses click-vs-drag threshold for picks; camera stays default orbit/pan. */
+export function shouldDeferViewportClickToOrbit(
+  _view: ViewType,
+  activeTool: ActiveTool,
+  selectionMode: SelectionMode,
+  button: number,
+  ctrlOrMeta = false
+): boolean {
+  if (ctrlOrMeta) return false
+  if (button !== 0) return false
+  if (isViewportLmbToolOwner(activeTool)) return false
+  return (
+    selectionMode === 'object' ||
+    isComponentSelectionMode(selectionMode) ||
+    activeTool === 'smart'
+  )
+}
+
+function isLightWaveNavGadget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as Element).closest !== 'function') return false
+  return !!(target as Element).closest('[data-lw-nav]')
+}
+
+/**
+ * Capture-phase gate: when LMB hits a draggable object/component under select/move tools,
+ * OrbitControls must not arm on the same pointerdown (runs before bubble handlers).
+ */
+export function shouldCaptureBlockCameraForViewportDrag(
+  event: Pick<PointerEvent, 'button' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'clientX' | 'clientY'>,
+  target: EventTarget | null,
+  view: ViewType,
+  activeTool: ActiveTool,
+  selectionMode: SelectionMode,
+  stickyNav: ViewportStickyNav | null,
+  rect: DOMRect,
+  camera: Camera,
+  slotIndex: ViewportSlotIndex,
+  objects: SceneObject[],
+  selectedObjectId: string | null,
+  meshSelection: MeshComponentSelection | null,
+  viewportXRay: boolean
+): boolean {
+  if (event.button !== 0) return false
+  if (event.ctrlKey || event.metaKey) return false
+  if (event.shiftKey) return false
+  if (stickyNav) return false
+  if (isLightWaveNavGadget(target)) return false
+  if (!shouldDeferViewportClickToOrbit(view, activeTool, selectionMode, event.button, false)) {
+    return false
+  }
+
+  const isObjectSelectTool =
+    selectionMode === 'object' &&
+    (activeTool === 'select-object' || activeTool === 'smart')
+  const isObjectMoveTool = selectionMode === 'object' && activeTool === 'move'
+
+  if (isObjectSelectTool || isObjectMoveTool) {
+    const pickedObjectId = pickObjectAt(
+      event.clientX,
+      event.clientY,
+      rect,
+      camera,
+      slotIndex
+    )
+    if (pickedObjectId) return true
+  }
+
+  if (isComponentSelectionMode(selectionMode) && canDragComponentSelection(activeTool)) {
+    updateCameraMatrices(camera)
+    const hit = pickMeshComponent(
+      selectionMode,
+      event.clientX,
+      event.clientY,
+      rect,
+      camera,
+      objects,
+      meshSelection?.objectId ?? selectedObjectId,
+      { cullBackVertices: !viewportXRay }
+    )
+    const hasComponent =
+      hit && (hit.vertex !== undefined || hit.edge !== undefined || hit.face !== undefined)
+    if (!hasComponent || !hit) return false
+
+    const obj = objects.find((o) => o.id === hit.objectId)
+    const sel = meshSelection
+    const hitSelected =
+      obj &&
+      sel &&
+      selectionHasComponents(sel) &&
+      isHitInMeshSelection(hit, sel, selectionMode, obj)
+
+    return !!(hitSelected && obj && sel)
+  }
+
+  return false
+}
 export const SCULPT_TOOLS: ActiveTool[] = ['push', 'pull', 'inflate', 'deflate', 'relax', 'pinch']
 export const TRANSFORM_GIZMO_TOOLS: ActiveTool[] = ['move', 'rotate', 'scale']
+
+/** Object-level gizmo tools: select/smart show translate; move/rotate/scale match tool mode. */
+export const OBJECT_TRANSFORM_GIZMO_TOOLS: ActiveTool[] = [
+  'select-object',
+  'smart',
+  ...TRANSFORM_GIZMO_TOOLS,
+]
+
+export function showsObjectTransformGizmo(tool: ActiveTool): boolean {
+  return OBJECT_TRANSFORM_GIZMO_TOOLS.includes(tool)
+}
+
+export function toolToGizmoMode(tool: ActiveTool): 'translate' | 'rotate' | 'scale' {
+  if (tool === 'rotate') return 'rotate'
+  if (tool === 'scale') return 'scale'
+  return 'translate'
+}
+
 export const DEFORM_TOOLS: ActiveTool[] = ['bend', 'round']
 export const MESH_SELECT_TOOLS: ActiveTool[] = ['select-vertex', 'select-edge', 'select-face']
 export const MESH_EDIT_TOOLS: ActiveTool[] = ['knife', 'mirror-knife', 'loop-cut']
@@ -39,6 +187,20 @@ export function isBoxSelectInteraction(mode: SelectionMode, tool: ActiveTool): b
     (MESH_SELECT_TOOLS.includes(tool) || tool === 'smart' || tool === 'extrude' || TRANSFORM_GIZMO_TOOLS.includes(tool))
   )
 }
+
+/** Ctrl/Cmd+LMB drag owns marquee when box-select is available and sticky nav is not armed. */
+export function shouldCtrlLmbBoxSelect(
+  mode: SelectionMode,
+  tool: ActiveTool,
+  stickyNav: ViewportStickyNav | null
+): boolean {
+  if (!isBoxSelectInteraction(mode, tool)) return false
+  if (stickyNav) return false
+  return true
+}
+
+/** Primary button held during marquee pointer move/up. */
+export const MARQUEE_BUTTONS_MASK = 1
 
 /** Click-pick / multiselect while a component select or transform gizmo tool is active. */
 export function canPickComponentSelection(tool: ActiveTool): boolean {
@@ -173,4 +335,35 @@ export function getViewPlanePoint(
 ): { x: number; y: number } | null {
   updateCameraMatrices(camera)
   return clientToPlane(clientX, clientY, rect, camera, view, defaultDepth)
+}
+
+/** Raycast pointer onto a camera-facing vertical plane; return extrude height from base Y. */
+export function clientToHeightOnVerticalPlane(
+  clientX: number,
+  clientY: number,
+  rect: DOMRect,
+  camera: THREE.Camera,
+  baseBoxLocked: WorldBox,
+  heightAxis: Axis,
+  snapGrid: boolean
+): number | null {
+  updateCameraMatrices(camera)
+  const center = boundsCenter(baseBoxLocked.min, baseBoxLocked.max)
+  const plane = buildVerticalHeightDragPlane(camera, center)
+  const hit = clientToCameraPlane(clientX, clientY, rect, camera, plane)
+  if (!hit) return null
+
+  const baseY = axisComponent(baseBoxLocked.min, heightAxis)
+  let height = hit.y - baseY
+
+  if (snapGrid) {
+    const snappedTop = snapWorldToSceneGrid({
+      x: center.x,
+      y: baseY + height,
+      z: center.z,
+    })
+    height = axisComponent(snappedTop, heightAxis) - baseY
+  }
+
+  return Math.max(MIN_PRIMITIVE_HEIGHT, height)
 }

@@ -7,7 +7,12 @@ import {
   sub3,
   type Vec3,
 } from '../utils/math'
-import { defaultMaterial, cloneMaterial, type Material } from '../material/materialTypes'
+import {
+  DEFAULT_MESH_COLOR,
+  defaultMaterial,
+  cloneMaterial,
+  type Material,
+} from '../material/materialTypes'
 import type { CornerColor } from '../material/colorObject'
 import type { Uv2 } from '../uv/uvTypes'
 import type { SketchSource } from '../stroke/sketchSource'
@@ -110,8 +115,8 @@ function emptyMesh(): SceneObject {
     polyBudgetMode: 'strict',
     smoothShading: false,
     facetExaggeration: 0,
-    color: 0x6ecbf5,
-    material: defaultMaterial(0x6ecbf5),
+    color: DEFAULT_MESH_COLOR,
+    material: defaultMaterial(),
   }
 }
 
@@ -175,7 +180,7 @@ export class HalfEdgeMesh {
       subdEnabled: meta.subdEnabled,
       subdLevels: meta.subdLevels,
       facetExaggeration: meta.facetExaggeration ?? 0,
-      color: meta.color ?? 0x6ecbf5,
+      color: meta.color ?? DEFAULT_MESH_COLOR,
       uvMappingMode: meta.uvMappingMode,
       uvAutoPacked: meta.uvAutoPacked,
       uvLayoutVersion: meta.uvLayoutVersion,
@@ -334,7 +339,7 @@ export class HalfEdgeMesh {
     if (flatShading) {
       for (let fi = 0; fi < this.faces.length; fi++) {
         const face = this.faces[fi]
-        const color = this.faceColors[fi] ?? 0x6ecbf5
+        const color = this.faceColors[fi] ?? DEFAULT_MESH_COLOR
         const r = ((color >> 16) & 255) / 255
         const g = ((color >> 8) & 255) / 255
         const b = (color & 255) / 255
@@ -437,7 +442,7 @@ export class HalfEdgeMesh {
         const uv = this.uvs[uvIdx] ?? { u: 0, v: 0 }
         uvs.push(uv.u, uv.v)
       }
-      const color = this.faceColors[fi] ?? 0x6ecbf5
+      const color = this.faceColors[fi] ?? DEFAULT_MESH_COLOR
       const r = ((color >> 16) & 255) / 255
       const g = ((color >> 8) & 255) / 255
       const b = (color & 255) / 255

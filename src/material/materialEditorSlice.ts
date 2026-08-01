@@ -19,7 +19,7 @@ import type {
   MaterialMode,
   Rgba4,
 } from './materialTypes'
-import { cloneMaterial, defaultMaterial, hexToRgba4, rgba4ToNumber } from './materialTypes'
+import { cloneMaterial, defaultMaterial, hexToRgba4, rgba4ToNumber, DEFAULT_MESH_COLOR_HEX } from './materialTypes'
 import { gradientHandlesForDirection } from './gradientLine'
 import {
   allPaletteOptions,
@@ -54,7 +54,7 @@ export interface MaterialEditorState {
 export const materialEditorInitialState: MaterialEditorState = {
   materialEditorOpen: false,
   materialEditorPanel: { x: 96, y: 96, width: 340, height: 620, minimized: false },
-  materialEditorColor: hexToRgba4('#6ecbf5'),
+  materialEditorColor: hexToRgba4(DEFAULT_MESH_COLOR_HEX),
   materialEditorPaletteId: 'pico8',
   materialEditorCustomPalettes: [],
   materialEditorEyedropperActive: false,
@@ -62,7 +62,7 @@ export const materialEditorInitialState: MaterialEditorState = {
   materialEditorGradientStart: { u: 0.5, v: 0.92 },
   materialEditorGradientEnd: { u: 0.5, v: 0.08 },
   materialEditorGradientActiveStop: 0,
-  materialEditorGradientStops: [hexToRgba4('#6ecbf5'), hexToRgba4('#f5a66e')],
+  materialEditorGradientStops: [hexToRgba4(DEFAULT_MESH_COLOR_HEX), hexToRgba4('#c4c4c4')],
   materialEditorApplyToSelection: true,
   materialPaintHistoryPending: false,
   materialColorCancelEpoch: 0,

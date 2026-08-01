@@ -134,7 +134,7 @@ function ViewportSlot({
 }) {
   return (
     <div
-      className={`viewport-slot${isActive ? ' active-slot' : ''}${layoutVisible ? '' : ' viewport-slot-dormant'}`}
+      className={`viewport-slot${isActive ? ' active-slot' : ''}${isHovered ? ' hovered-slot' : ''}${layoutVisible ? '' : ' viewport-slot-dormant'}`}
       style={
         maximizedMode
           ? layoutVisible
@@ -155,6 +155,7 @@ function ViewportSlot({
         isActive={isActive}
         isHovered={isHovered}
         onActivate={onActivate}
+        onHover={onHover}
         layoutVisible={layoutVisible}
       />
     </div>
@@ -205,8 +206,37 @@ export function ViewportLayout() {
     [setHoveredViewportSlot]
   )
 
+  const layoutPointerLeave = (e: React.PointerEvent<HTMLDivElement>) => {
+    const next = e.relatedTarget
+    if (next instanceof Element && next.closest('.viewport-layout')) return
+    clearHoverSlot()
+  }
+
+  if (maximizedMode && maximizedSlot !== null) {
+    const slot = maximizedSlot
+    const view = viewportSlotViews[slot]!
+    return (
+      <div className="viewport-layout maximized" onPointerLeave={layoutPointerLeave}>
+        <div className="viewport-row viewport-row-maximized">
+          <ViewportSlot
+            key={slot}
+            slotIndex={slot}
+            view={view}
+            isActive={activeView === view}
+            isHovered={hoveredViewportSlot === slot}
+            onActivate={() => setActiveView(view)}
+            onHover={() => hoverSlot(slot)}
+            onHoverEnd={clearHoverSlot}
+            layoutVisible
+            maximizedMode
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className={`viewport-layout${maximizedMode ? ' maximized' : ''}`}>
+    <div className="viewport-layout" onPointerLeave={layoutPointerLeave}>
       <div
         className="viewport-row"
         style={{
@@ -215,6 +245,7 @@ export function ViewportLayout() {
         }}
       >
         <ViewportSlot
+          key={0}
           slotIndex={0}
           view={viewportSlotViews[0]!}
           isActive={activeView === viewportSlotViews[0]}
@@ -228,6 +259,7 @@ export function ViewportLayout() {
         />
         {!maximizedMode && <ResizeHandle axis="column" onDrag={setViewportColSplit} />}
         <ViewportSlot
+          key={1}
           slotIndex={1}
           view={viewportSlotViews[1]!}
           isActive={activeView === viewportSlotViews[1]}
@@ -251,6 +283,7 @@ export function ViewportLayout() {
         }}
       >
         <ViewportSlot
+          key={2}
           slotIndex={2}
           view={viewportSlotViews[2]!}
           isActive={activeView === viewportSlotViews[2]}
@@ -264,6 +297,7 @@ export function ViewportLayout() {
         />
         {!maximizedMode && <ResizeHandle axis="column" onDrag={setViewportColSplit} />}
         <ViewportSlot
+          key={3}
           slotIndex={3}
           view={viewportSlotViews[3]!}
           isActive={activeView === viewportSlotViews[3]}

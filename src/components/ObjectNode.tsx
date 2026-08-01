@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, type RefObject } from 'react'
 import { ThemedTransformControls } from './ThemedTransformControls'
 import { useThree } from '@react-three/fiber'
 import type * as THREE from 'three'
-import { useAppStore, type ActiveTool, type SelectionMode } from '../store/appStore'
+import { useAppStore, type SelectionMode } from '../store/appStore'
 import { ensureTransform, getObjectPivot, cloneTransform, transformFromObject3D, transformsEqual } from '../mesh/objectTransform'
 import { registerPickTarget, unregisterPickTarget } from '../select/pickRegistry'
 import { useViewportSlotIndex } from './viewport/ViewportRuntimeContext'
@@ -12,17 +12,11 @@ import { NormalVisuals } from './NormalVisuals'
 import type { SceneObject } from '../mesh/HalfEdgeMesh'
 import type { ViewportDisplayMode } from '../rendering/viewportDisplay'
 import { VIEWPORT_DISPLAY_CONFIG } from '../rendering/viewportDisplay'
+import { showsObjectTransformGizmo, toolToGizmoMode } from '../viewport/viewportInteractionUtils'
+import { useGizmoVisible, useTransformGizmoSettings } from '../hooks/useTransformGizmoSettings'
 
 function isComponentSelectionMode(mode: SelectionMode): boolean {
   return mode === 'vertex' || mode === 'edge' || mode === 'face'
-}
-
-const TRANSFORM_TOOLS: ActiveTool[] = ['move', 'rotate', 'scale']
-
-function toolToMode(tool: ActiveTool): 'translate' | 'rotate' | 'scale' {
-  if (tool === 'rotate') return 'rotate'
-  if (tool === 'scale') return 'scale'
-  return 'translate'
 }
 
 interface ObjectNodeProps {
@@ -111,10 +105,12 @@ function ObjectTransformGizmo({
   const activeTool = useAppStore((s) => s.activeTool)
   const updateObjectTransform = useAppStore((s) => s.updateObjectTransform)
   const commitHistory = useAppStore((s) => s.commitHistory)
+  const gizmoVisible = useGizmoVisible()
+  const gizmoSettings = useTransformGizmoSettings()
   const glDomElement = useThree((s) => s.gl.domElement)
   const dragBaseTransformRef = useRef<ReturnType<typeof cloneTransform> | null>(null)
 
-  if (!TRANSFORM_TOOLS.includes(activeTool)) return null
+  if (!gizmoVisible || !showsObjectTransformGizmo(activeTool)) return null
 
   const syncFromGroup = () => {
     const g = rootRef.current
@@ -130,9 +126,8 @@ function ObjectTransformGizmo({
     <ThemedTransformControls
       object={rootRef as RefObject<THREE.Object3D>}
       domElement={glDomElement}
-      mode={toolToMode(activeTool)}
-      space="world"
-      size={1.2}
+      mode={toolToGizmoMode(activeTool)}
+      {...gizmoSettings}
       onMouseDown={() => {
         draggingRef.current = true
         dragBaseTransformRef.current = cloneTransform(ensureTransform(object))

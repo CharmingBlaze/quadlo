@@ -138,10 +138,8 @@ export function startPrimitiveBoxSession(
   return { baseView: ortho, heightAxis, box, cornerA, cornerB }
 }
 
-/** Perspective CAD: drag footprint on XZ ground, drag up/down or scroll wheel sets height. */
+/** Perspective CAD: drag footprint on XZ ground, then drag up for height (wheel adjusts too). */
 export const PERSPECTIVE_PRIMITIVE_HEIGHT_AXIS: Axis = 1
-/** World units gained per screen pixel when dragging perspective primitive height. */
-export const PERSPECTIVE_PRIMITIVE_HEIGHT_DRAG_SCALE = 0.1
 
 export function baseBoxFromGroundCorners(
   cornerA: Vec3,

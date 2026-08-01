@@ -11,7 +11,7 @@ import {
   ensureObjectMaterial,
   resolveColorCornersForSelection,
 } from '../material/materials'
-import { numberToRgba4, rgba4ToNumber } from '../material/materialTypes'
+import { numberToRgba4, rgba4ToNumber, DEFAULT_MESH_COLOR, DEFAULT_MESH_COLOR_HEX } from '../material/materialTypes'
 import { rgba4Equal } from '../material/colorObject'
 import type { Rgba4 } from '../material/materialTypes'
 import { applyTheme } from '../theme/applyTheme'
@@ -26,7 +26,13 @@ import type { SelectionMode } from './selectionSlice'
 
 const THEME_STORAGE_KEY = 'lpo-theme'
 const BOOT_THEME_ID = readStoredThemeId()
-const BOOT_MATERIAL = getThemeMaterialColor(BOOT_THEME_ID)
+
+function activeColorForTheme(themeId: ThemeId): number {
+  if (themeId === 'quadlo-default') return DEFAULT_MESH_COLOR
+  return getThemeMaterialColor(themeId)
+}
+
+const BOOT_MATERIAL = activeColorForTheme(BOOT_THEME_ID)
 
 function objectNeedsRecolor(obj: SceneObject, color: number, rgba: Rgba4): boolean {
   const mat = ensureObjectMaterial(obj).material!
@@ -274,10 +280,11 @@ export function createSceneSettingsSlice<T extends SceneSettingsLayoutState>(
       } catch {
         /* ignore */
       }
-      const materialHex = getThemeMaterialHex(id)
+      const materialHex =
+        id === 'quadlo-default' ? DEFAULT_MESH_COLOR_HEX : getThemeMaterialHex(id)
       setPartial({
         themeId: id,
-        activeColor: getThemeMaterialColor(id),
+        activeColor: activeColorForTheme(id),
         materialEditorColor: hexToRgba4(materialHex),
       })
     },

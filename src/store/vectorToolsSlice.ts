@@ -39,9 +39,10 @@ import {
   regeneratePrimitiveObject,
   type EditablePrimitiveSourcePatch,
 } from '../primitives/primitiveBoxCommit'
-import { canExtrudeHeightInView, isOrthoView, type Axis } from '../primitives/viewAxes'
+import { canExtrudeHeightInView, completingViewsForHeight, isOrthoView, type Axis } from '../primitives/viewAxes'
 import { maxRoundedBoxSubdivisionsForBudget } from '../mesh/meshPolyBudget'
 import type { ViewType, OrthoViewType } from '../scene/viewTypes'
+import { normalizeViewType } from '../scene/viewTypes'
 import { clearStrokeDraftState, isHairStrokeMode } from './strokeSlice'
 
 type UvTextureInfo = {
@@ -284,6 +285,13 @@ type VectorStore = VectorToolsLayoutState & {
   pathSourceObjectId: string | null
   pushHistory: (label?: string) => boolean
   objectTextures: Record<string, UvTextureInfo>
+  viewportSlotViews: ViewType[]
+  maximizedSlot: import('../scene/viewTypes').ViewportSlotIndex | null
+  setActiveView: (view: ViewType) => void
+  setViewportSlotView: (
+    index: import('../scene/viewTypes').ViewportSlotIndex,
+    view: ViewType
+  ) => void
 }
 
 export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
@@ -1255,7 +1263,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
 
       if (
         primitiveRounded &&
-        primitiveBoxDraft!.phase === 'scrollHeight' &&
+        primitiveBoxDraft!.phase === 'drawingHeight' &&
         primitiveBoxDraft!.baseView === 'perspective' &&
         !shiftKey
       ) {
@@ -1286,7 +1294,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         if (!worldPoint) return
 
         if (
-          primitiveBoxDraft?.phase === 'scrollHeight' &&
+          primitiveBoxDraft?.phase === 'drawingHeight' &&
           primitiveBoxDraft.baseView === 'perspective'
         ) {
           return
@@ -1320,22 +1328,8 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         isOrthoView(primitiveBoxDraft.baseView) &&
         view === primitiveBoxDraft.baseView
       ) {
-        const session = startPrimitiveBoxSession(view, point, defaultDepth)
-        if (!session) return
-        setPartial({
-          primitiveBoxDraft: {
-            phase: 'drawingBase',
-            baseView: session.baseView,
-            heightAxis: session.heightAxis,
-            box: session.box,
-            baseBoxLocked: session.box,
-            baseCornerA: session.cornerA,
-            baseCornerB: session.cornerB,
-            heightCornerA: null,
-            heightCornerB: null,
-            heightView: null,
-          },
-        })
+        // Same view as the footprint — height must be dragged in a completing
+        // ortho (Top/Side/…). Do not restart the base, or the flow feels stuck.
         return
       }
 
@@ -1455,20 +1449,20 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
     },
 
     primitiveBoxPointerUp: (point, view, shiftKey, worldPoint) => {
-      const { primitiveBoxDraft, defaultDepth, activePrimitiveKind } = store()
+      const state = store()
+      const { primitiveBoxDraft, defaultDepth, activePrimitiveKind } = state
       if (!primitiveBoxDraft || !activePrimitiveKind) return
 
       if (view === 'perspective' && primitiveBoxDraft.baseView === 'perspective') {
-        if (
-          primitiveBoxDraft.phase !== 'drawingBase' ||
-          !worldPoint ||
-          !primitiveBoxDraft.worldCornerA ||
-          primitiveBoxDraft.groundY === undefined
-        ) {
+        if (primitiveBoxDraft.phase !== 'drawingBase' || !primitiveBoxDraft.worldCornerA) {
           return
         }
-        const groundY = primitiveBoxDraft.groundY
-        const cornerB: Vec3 = { x: worldPoint.x, y: groundY, z: worldPoint.z }
+        const groundY = primitiveBoxDraft.groundY ?? defaultDepth
+        const cornerB: Vec3 = worldPoint
+          ? { x: worldPoint.x, y: groundY, z: worldPoint.z }
+          : primitiveBoxDraft.worldCornerB
+            ? { ...primitiveBoxDraft.worldCornerB, y: groundY }
+            : { ...primitiveBoxDraft.worldCornerA, y: groundY }
         const footprint = baseBoxFromGroundCorners(
           primitiveBoxDraft.worldCornerA,
           cornerB,
@@ -1476,15 +1470,14 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
           shiftKey
         )
         const locked = flattenBoxOnHeightAxis(footprint, primitiveBoxDraft.heightAxis)
-        const initialHeight = 4
         setPartial({
           primitiveBoxDraft: {
             ...primitiveBoxDraft,
-            phase: 'scrollHeight',
+            phase: 'drawingHeight',
             worldCornerB: cornerB,
             baseBoxLocked: locked,
-            scrollHeight: initialHeight,
-            box: extrudeFlatBoxToHeight(locked, primitiveBoxDraft.heightAxis, initialHeight),
+            box: locked,
+            scrollHeight: undefined,
           },
         })
         return
@@ -1497,10 +1490,11 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         isOrthoView(primitiveBoxDraft.baseView) &&
         view === primitiveBoxDraft.baseView
       ) {
+        const endPoint = point
         const box = baseBoxFromPlaneCorners(
           primitiveBoxDraft.baseView,
           primitiveBoxDraft.baseCornerA,
-          point,
+          endPoint,
           defaultDepth,
           shiftKey
         )
@@ -1509,7 +1503,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
           primitiveBoxDraft: {
             ...primitiveBoxDraft,
             phase: 'drawingHeight',
-            baseCornerB: { ...point },
+            baseCornerB: { ...endPoint },
             box: locked,
             baseBoxLocked: locked,
             heightCornerA: null,
@@ -1517,6 +1511,33 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
             heightView: null,
           },
         })
+
+        // Hand off to a completing ortho so height drag can continue immediately.
+        const base = normalizeViewType(primitiveBoxDraft.baseView)
+        if (isOrthoView(base)) {
+          const completing = completingViewsForHeight(base, primitiveBoxDraft.heightAxis)
+          const preferredIndex = state.viewportSlotViews.findIndex((slotView) => {
+            const normalized = normalizeViewType(slotView)
+            return isOrthoView(normalized) && completing.includes(normalized)
+          })
+          const preferred =
+            preferredIndex >= 0
+              ? normalizeViewType(state.viewportSlotViews[preferredIndex]!)
+              : completing[0] ?? null
+
+          if (preferred && isOrthoView(preferred)) {
+            const maxSlot = state.maximizedSlot
+            if (maxSlot !== null) {
+              const maxView = normalizeViewType(state.viewportSlotViews[maxSlot]!)
+              // Maximized on the footprint view — switch that pane to a completing
+              // ortho so the next drag can set height without restoring the quad.
+              if (!isOrthoView(maxView) || !completing.includes(maxView)) {
+                state.setViewportSlotView(maxSlot, preferred)
+              }
+            }
+            state.setActiveView(preferred)
+          }
+        }
         return
       }
 
@@ -1527,19 +1548,20 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         isOrthoView(primitiveBoxDraft.baseView) &&
         canExtrudeHeightInView(primitiveBoxDraft.baseView, view, primitiveBoxDraft.heightAxis)
       ) {
+        const endPoint = point
         const box = extrudeBoxOnHeightAxis(
           flattenBoxOnHeightAxis(primitiveBoxDraft.baseBoxLocked, primitiveBoxDraft.heightAxis),
           primitiveBoxDraft.heightAxis,
           view,
           primitiveBoxDraft.heightCornerA,
-          point,
+          endPoint,
           defaultDepth,
           shiftKey
         )
         setPartial({
           primitiveBoxDraft: {
             ...primitiveBoxDraft,
-            heightCornerB: { ...point },
+            heightCornerB: { ...endPoint },
             box,
           },
         })
@@ -1551,14 +1573,14 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
       const { primitiveBoxDraft } = store()
       if (
         !primitiveBoxDraft ||
-        primitiveBoxDraft.phase !== 'scrollHeight' ||
+        primitiveBoxDraft.phase !== 'drawingHeight' ||
         primitiveBoxDraft.baseView !== 'perspective'
       ) {
         return
       }
 
       const step = deltaY > 0 ? -3 : 3
-      const prev = primitiveBoxDraft.scrollHeight ?? 4
+      const prev = primitiveBoxDraft.scrollHeight ?? 0.5
       store().setPrimitiveBoxScrollHeight(prev + step)
     },
 
@@ -1566,7 +1588,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
       const { primitiveBoxDraft } = store()
       if (
         !primitiveBoxDraft ||
-        primitiveBoxDraft.phase !== 'scrollHeight' ||
+        primitiveBoxDraft.phase !== 'drawingHeight' ||
         primitiveBoxDraft.baseView !== 'perspective'
       ) {
         return

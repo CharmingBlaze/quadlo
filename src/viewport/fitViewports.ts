@@ -117,3 +117,28 @@ export function applyViewportFit(
     controls.update()
   }
 }
+
+/** Reset camera to the view's canonical orientation, target origin, and default zoom. */
+export function applyViewportReset(
+  camera: THREE.Camera,
+  controls: OrbitLike | null | undefined,
+  view: ViewType
+): void {
+  const setup = getCameraSetup(view)
+
+  camera.up.set(setup.up[0], setup.up[1], setup.up[2])
+  camera.position.set(setup.position[0], setup.position[1], setup.position[2])
+  camera.lookAt(0, 0, 0)
+
+  if (camera instanceof THREE.OrthographicCamera) {
+    camera.zoom = setup.zoom
+    camera.updateProjectionMatrix()
+  } else if (camera instanceof THREE.PerspectiveCamera) {
+    camera.updateProjectionMatrix()
+  }
+
+  if (controls) {
+    controls.target.set(0, 0, 0)
+    controls.update()
+  }
+}

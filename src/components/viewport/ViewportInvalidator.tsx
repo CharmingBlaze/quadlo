@@ -61,6 +61,7 @@ export function ViewportSceneInvalidator({
   cadPreviewSignal: unknown
 }) {
   const { slotIndex, layoutVisible } = useViewportRuntime()
+  const viewportShadowsEnabled = useAppStore((s) => s.viewportShadowsEnabled)
   const meshHover = useAppStore((s) => s.meshHover)
   const hoverForThisSlot =
     meshHover?.viewportSlot === undefined || meshHover.viewportSlot === slotIndex
@@ -80,6 +81,7 @@ export function ViewportSceneInvalidator({
     selectionObjectIds,
     selectedObjectId,
     viewportDisplayMode,
+    viewportShadowsEnabled,
     viewportXRay,
     activeTool,
     showGrid,

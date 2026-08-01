@@ -9,14 +9,8 @@ import {
   transformObjectsWithGizmo,
 } from '../mesh/objectTransform'
 import { useAppStore, type ActiveTool } from '../store/appStore'
-
-const TRANSFORM_TOOLS: ActiveTool[] = ['move', 'rotate', 'scale']
-
-function toolToMode(tool: ActiveTool): 'translate' | 'rotate' | 'scale' {
-  if (tool === 'rotate') return 'rotate'
-  if (tool === 'scale') return 'scale'
-  return 'translate'
-}
+import { showsObjectTransformGizmo, toolToGizmoMode } from '../viewport/viewportInteractionUtils'
+import { useGizmoVisible, useTransformGizmoSettings } from '../hooks/useTransformGizmoSettings'
 
 type DragState = {
   baseTransforms: Record<string, ReturnType<typeof cloneTransform>>
@@ -44,6 +38,8 @@ export function ObjectSelectionGizmo({
   const objects = useAppStore((s) => s.objects)
   const commitHistory = useAppStore((s) => s.commitHistory)
   const updateSelectionObjectTransforms = useAppStore((s) => s.updateSelectionObjectTransforms)
+  const gizmoVisible = useGizmoVisible()
+  const gizmoSettings = useTransformGizmoSettings()
 
   const center = useMemo(
     () => selectionWorldCenter(objects, selectionObjectIds),
@@ -144,7 +140,7 @@ export function ObjectSelectionGizmo({
     anchor.updateMatrixWorld()
   }
 
-  if (!TRANSFORM_TOOLS.includes(activeTool) || selectionObjectIds.length < 2) {
+  if (!gizmoVisible || !showsObjectTransformGizmo(activeTool) || selectionObjectIds.length < 2) {
     return null
   }
 
@@ -154,9 +150,8 @@ export function ObjectSelectionGizmo({
       <ThemedTransformControls
         object={anchorRef as RefObject<THREE.Object3D>}
         domElement={glDomElement}
-        mode={toolToMode(activeTool)}
-        space="world"
-        size={1.2}
+        mode={toolToGizmoMode(activeTool)}
+        {...gizmoSettings}
         onMouseDown={beginDrag}
         onMouseUp={endDrag}
         onObjectChange={applyGizmo}

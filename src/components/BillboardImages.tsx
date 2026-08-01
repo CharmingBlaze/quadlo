@@ -1,21 +1,12 @@
 import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { TransformControls } from '@react-three/drei'
 import * as THREE from 'three'
-import { useAppStore, type ActiveTool } from '../store/appStore'
+import { useAppStore } from '../store/appStore'
 import type { BillboardImage } from '../images/imageDropTypes'
 import { useLoadedTexture } from '../rendering/textureCache'
-import { popViewportSharedInteraction, pushViewportSharedInteraction } from '../rendering/viewportFrameLoop'
-import { useViewportSlotIndex } from './ViewportSlotContext'
-
-
-const TRANSFORM_TOOLS: ActiveTool[] = ['move', 'rotate', 'scale']
-
-function toolToMode(tool: ActiveTool): 'translate' | 'rotate' | 'scale' {
-  if (tool === 'rotate') return 'rotate'
-  if (tool === 'scale') return 'scale'
-  return 'translate'
-}
+import { ThemedTransformControls } from './ThemedTransformControls'
+import { showsObjectTransformGizmo, toolToGizmoMode } from '../viewport/viewportInteractionUtils'
+import { useGizmoVisible, useTransformGizmoSettings } from '../hooks/useTransformGizmoSettings'
 
 interface BillboardNodeProps {
   billboard: BillboardImage
@@ -62,8 +53,7 @@ function BillboardMesh({ billboard, isSelected }: BillboardNodeProps) {
   const activeTool = useAppStore((s) => s.activeTool)
   const texture = useLoadedTexture(billboard.url)
 
-  const canPick =
-    activeTool === 'select-object' || TRANSFORM_TOOLS.includes(activeTool)
+  const canPick = showsObjectTransformGizmo(activeTool)
 
   return (
     <mesh
@@ -128,15 +118,17 @@ export function BillboardNode({ billboard, isSelected }: BillboardNodeProps) {
   const activeTool = useAppStore((s) => s.activeTool)
   const updateBillboardImage = useAppStore((s) => s.updateBillboardImage)
   const commitHistory = useAppStore((s) => s.commitHistory)
-  const slotIndex = useViewportSlotIndex()
   const groupRef = useRef<THREE.Group>(null)
   const faceRef = useRef<THREE.Group>(null)
   const draggingRef = useRef(false)
   const dragBaseRef = useRef<ReturnType<typeof billboardStateFromGroup> | null>(null)
   const scaleBaseRef = useRef<{ width: number; height: number } | null>(null)
   const glDomElement = useThree((s) => s.gl.domElement)
+  const gizmoVisible = useGizmoVisible()
+  const gizmoSettings = useTransformGizmoSettings()
 
-  const gizmoActive = isSelected && TRANSFORM_TOOLS.includes(activeTool)
+  const gizmoActive =
+    gizmoVisible && isSelected && showsObjectTransformGizmo(activeTool)
 
   useEffect(() => {
     const g = groupRef.current
@@ -197,14 +189,12 @@ export function BillboardNode({ billboard, isSelected }: BillboardNodeProps) {
         </group>
       </group>
       {gizmoActive && groupRef.current && (
-        <TransformControls
+        <ThemedTransformControls
           object={groupRef as RefObject<THREE.Object3D>}
           domElement={glDomElement}
-          mode={toolToMode(activeTool)}
-          space="world"
-          size={1.2}
+          mode={toolToGizmoMode(activeTool)}
+          {...gizmoSettings}
           onMouseDown={() => {
-            pushViewportSharedInteraction(slotIndex)
             draggingRef.current = true
             scaleBaseRef.current = { width: billboard.width, height: billboard.height }
             dragBaseRef.current = {
@@ -215,7 +205,6 @@ export function BillboardNode({ billboard, isSelected }: BillboardNodeProps) {
             }
           }}
           onMouseUp={() => {
-            popViewportSharedInteraction(slotIndex)
             draggingRef.current = false
             const base = dragBaseRef.current
             const scaleBase = scaleBaseRef.current
