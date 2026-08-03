@@ -8,7 +8,6 @@ import {
 import { ViewportRenderContext } from '../ViewportRenderContext'
 import { ViewportDomContext } from '../ViewportDomContext'
 import { useAppStore } from '../../store/appStore'
-import { getViewportBackground } from '../../theme/themes'
 import { selectionHasComponents } from '../../mesh/meshSelection'
 import { type SelectableViewType } from '../../scene/viewTypes'
 import { useViewportPointerHandlers } from '../../hooks/useViewportPointerHandlers'
@@ -146,7 +145,6 @@ export function ViewportPanel({
 
   const isActiveViewport = isActive && activeView === view
   const pixelPaintActive = pixelEditorOpen && pixelEditorPaintOnModel
-  const viewportBg = getViewportBackground(themeId, viewportDisplayMode)
   // Live tool/stroke previews must appear in every visible slot so Quad View stays in sync.
   const showToolPreviews = layoutVisible
 
@@ -437,7 +435,6 @@ export function ViewportPanel({
               componentGizmoActive={componentGizmoActive}
               componentGizmoObject={componentGizmoObject}
               billboardImagesLength={billboardImagesLength}
-              viewportBg={viewportBg}
             />
           </ViewportDomContext.Provider>
         </ViewportRuntimeProvider>

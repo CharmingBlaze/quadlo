@@ -34,7 +34,7 @@ export const gizmoInitialState: GizmoLayoutState = {
   gizmoTranslationSnap: 1,
   gizmoRotationSnap: Math.PI / 12,
   gizmoScaleSnap: 0.1,
-  gizmoSize: 1.35,
+  gizmoSize: 0.8,
 }
 
 export function createGizmoSlice<T extends GizmoSlice>(

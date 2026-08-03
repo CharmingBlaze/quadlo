@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useEffect } from 'react'
 import { Grid } from '@react-three/drei'
 import { ViewportLine } from './ViewportLine'
 import type { ViewType } from '../store/appStore'
@@ -17,25 +17,24 @@ const BASE_SECTION = BASE_CELL * 10
 
 /** Muted DCC axis colors — red/green/blue without neon saturation. */
 const AXIS_COLORS = {
-  x: '#b85a54',
-  y: '#6a9a58',
-  z: '#5a82b8',
+  x: '#e05252',
+  y: '#52c462',
+  z: '#528ce0',
 } as const
 
-const GRID_STYLE = {
-  cellThickness: 0.55,
-  sectionThickness: 1.05,
-  /** Matches the tuned perspective floor fade (1400 × 0.85). */
-  fadeDistance: 1190,
-  fadeStrength: 1.1,
+const SCENE_GRID_STYLE = {
+  cellThickness: 0.6,
+  sectionThickness: 1.2,
+  fadeDistance: 4000,
+  fadeStrength: 0.1,
   infiniteGrid: true as const,
 }
 
 const AXIS_LEN = BASE_SECTION * 6
 
 const AXIS_LINE_STYLE = {
-  lineWidth: 1.2,
-  opacity: 0.65,
+  lineWidth: 1.8,
+  opacity: 0.9,
 } as const
 
 function SharedFloorGrid({
@@ -46,17 +45,26 @@ function SharedFloorGrid({
   rotation?: [number, number, number]
 }) {
   const { gridCell, gridSection } = useTheme()
+  const gridRef = useRef<any>(null)
+
+  useEffect(() => {
+    if (gridRef.current?.material) {
+      gridRef.current.material.toneMapped = false
+    }
+  }, [])
+
   return (
     <Grid
+      ref={gridRef}
       cellSize={BASE_CELL}
       sectionSize={BASE_SECTION}
-      infiniteGrid={GRID_STYLE.infiniteGrid}
+      infiniteGrid={SCENE_GRID_STYLE.infiniteGrid}
       cellColor={gridCell}
       sectionColor={gridSection}
-      cellThickness={GRID_STYLE.cellThickness}
-      sectionThickness={GRID_STYLE.sectionThickness}
-      fadeDistance={GRID_STYLE.fadeDistance}
-      fadeStrength={GRID_STYLE.fadeStrength}
+      cellThickness={SCENE_GRID_STYLE.cellThickness}
+      sectionThickness={SCENE_GRID_STYLE.sectionThickness}
+      fadeDistance={SCENE_GRID_STYLE.fadeDistance}
+      fadeStrength={SCENE_GRID_STYLE.fadeStrength}
       position={position}
       rotation={rotation}
     />

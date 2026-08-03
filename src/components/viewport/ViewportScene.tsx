@@ -6,7 +6,7 @@ import { ViewportPointerPolicy } from '../ViewportPointerPolicy'
 import { ViewportCamera } from './ViewportCamera'
 import { ViewportControls } from './ViewportControls'
 import { ViewportInvalidatorBridge, ViewportSceneInvalidator, ViewportStrokeInvalidator } from './ViewportInvalidator'
-import { ViewportShadowPlane, ViewportShadowRendererSync } from './ViewportShadowSetup'
+import { ViewportShadowPlane, ViewportShadowRendererSync, ViewportClearColorSync } from './ViewportShadowSetup'
 import { ViewportObjects } from './ViewportObjects'
 import { ViewportToolOverlays } from './ViewportToolOverlays'
 import type { SceneObject } from '../../mesh/HalfEdgeMesh'
@@ -46,7 +46,6 @@ export function ViewportScene({
   componentGizmoActive,
   componentGizmoObject,
   billboardImagesLength,
-  viewportBg,
 }: {
   view: ViewType
   slotIndex: ViewportSlotIndex
@@ -77,7 +76,6 @@ export function ViewportScene({
   componentGizmoActive: boolean
   componentGizmoObject: SceneObject | null | undefined
   billboardImagesLength: number
-  viewportBg: string
 }) {
   return (
     <>
@@ -100,11 +98,13 @@ export function ViewportScene({
       <WebGLContextHandler />
       <ViewportPointerPolicy gizmoActive={canvasPointerEvents} />
       <ViewportShadowRendererSync />
+      <ViewportClearColorSync />
 
       <ViewportCamera view={view} isActiveViewport={isActiveViewport} objects={objects} />
 
-      <color attach="background" args={[viewportBg]} />
       <ViewportLighting />
+
+
 
       <ViewportControls
         rootRef={containerRef}

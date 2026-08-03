@@ -10,6 +10,7 @@ import {
   type ViewportDisplayMode,
 } from '../rendering/viewportDisplay'
 import { useAppStore } from '../store/appStore'
+import { useViewportRuntime } from './viewport/ViewportRuntimeContext'
 import { VIEWPORT_XRAY_OPACITY } from '../store/viewportSlice'
 import { ensureObjectUVs } from '../uv/uvObject'
 import { resolveSubdivisionPreview } from '../mesh/subdivisionSurface'
@@ -40,6 +41,7 @@ import { worldBounds } from '../mesh/objectTransform'
 interface MeshRendererProps {
   object: SceneObject
   isSelected: boolean
+  isPrimary?: boolean
   /** Pixel-paint focus: translucent surface, topology, and paint preview. */
   paintFocus?: boolean
   facetExaggeration: number
@@ -326,8 +328,6 @@ function MeshMaterial({
     depthTest: true,
     map: useTexture ? (map ?? undefined) : undefined,
     color: useTexture && !pixelTextureBlend ? textureTint : undefined,
-    onBeforeCompile,
-    customProgramCacheKey,
   }
 
   switch (config.material) {
@@ -339,6 +339,8 @@ function MeshMaterial({
           {...common}
           emissive={emissive}
           emissiveIntensity={emissiveIntensity}
+          onBeforeCompile={onBeforeCompile}
+          customProgramCacheKey={customProgramCacheKey}
         />
       )
     case 'toon':
@@ -347,15 +349,12 @@ function MeshMaterial({
           {...common}
           emissive={emissive}
           emissiveIntensity={emissiveIntensity}
+          onBeforeCompile={onBeforeCompile}
+          customProgramCacheKey={customProgramCacheKey}
         />
       )
     case 'standard':
     default:
-      // Alpha cutout images (PNG/WebP drops): unlit so the photo isn't washed gray by PBR.
-      // Opaque textured meshes keep standard lighting.
-      if (useTexture && textureAlpha) {
-        return <meshBasicMaterial {...common} toneMapped={false} />
-      }
       return (
         <meshStandardMaterial
           {...common}
@@ -363,7 +362,9 @@ function MeshMaterial({
           metalness={metalness}
           emissive={emissive}
           emissiveIntensity={emissiveIntensity}
-          toneMapped={!useTexture}
+          toneMapped={true}
+          onBeforeCompile={onBeforeCompile}
+          customProgramCacheKey={customProgramCacheKey}
         />
       )
   }
@@ -372,6 +373,7 @@ function MeshMaterial({
 export const MeshRenderer = memo(function MeshRenderer({
   object,
   isSelected: _isSelected,
+  isPrimary = false,
   paintFocus = false,
   facetExaggeration,
   showDensityHeatmap,
@@ -382,13 +384,16 @@ export const MeshRenderer = memo(function MeshRenderer({
     meshOutline,
     meshOutlineSecondary,
     accentOrange,
+    objectSelectOutline,
+    objectSelectOutlineSecondary,
   } = useTheme()
   const meshRef = useRef<THREE.Mesh>(null)
   const invalidate = useThree((s) => s.invalidate)
+  const { view } = useViewportRuntime()
   const shadowsEnabled = useAppStore((s) => s.viewportShadowsEnabled)
   // Match in-game lit surfaces — skip unlit/wireframe so shadow maps stay clean.
   const castReceiveShadow =
-    shadowsEnabled && displayMode !== 'unlit' && displayMode !== 'wireframe'
+    shadowsEnabled && view === 'perspective' && displayMode !== 'unlit' && displayMode !== 'wireframe'
   const uvPatchRef = useRef({
     topology: null as SceneObject | null,
     flatShading: true,
@@ -620,6 +625,7 @@ export const MeshRenderer = memo(function MeshRenderer({
         return Math.round((1 + (n - 1) * strength) * 255).toString(16).padStart(2, '0')
       }).join('')}`
     : '#ffffff'
+  const selectionOutlineColor = isPrimary ? objectSelectOutline : objectSelectOutlineSecondary
   const { roughness, metalness } = resolveMaterialSurface(materialSettings)
 
   const cageGeometry = useMemo(() => {
@@ -709,8 +715,6 @@ export const MeshRenderer = memo(function MeshRenderer({
   const edgeColor = displayMode === 'model' ? meshOutlineSecondary : meshOutline
   const wireColor = meshOutline
 
-  // Model-view outlines use topology edges for both flat and smooth shading.
-  // (drei <Edges> fails to draw reliably on smooth/welded meshes.)
   const topologyEdgeGeometry = useMemo(() => {
     if (!config.showEdgeOutline && !paintFocus) return null
     return buildViewportEdgeOutlineGeometry(renderObject)
@@ -722,6 +726,17 @@ export const MeshRenderer = memo(function MeshRenderer({
   ])
 
   useEffect(() => () => topologyEdgeGeometry?.dispose(), [topologyEdgeGeometry])
+
+  const selectionEdgeGeometry = useMemo(() => {
+    if (!_isSelected) return null
+    return buildViewportEdgeOutlineGeometry(renderObject)
+  }, [
+    _isSelected,
+    renderObject.positions,
+    renderObject.faces,
+  ])
+
+  useEffect(() => () => selectionEdgeGeometry?.dispose(), [selectionEdgeGeometry])
 
   useEffect(() => {
     const mesh = meshRef.current
@@ -765,7 +780,7 @@ export const MeshRenderer = memo(function MeshRenderer({
             <lineBasicMaterial
               color={paintFocus ? meshOutline : edgeColor}
               transparent
-              opacity={paintFocus ? 0.78 : viewportXRay ? 0.95 : 0.88}
+              opacity={paintFocus ? 0.78 : viewportXRay ? 0.95 : 0.18}
               depthTest={paintFocus ? false : !viewportXRay}
               depthWrite={false}
               polygonOffset
@@ -805,12 +820,28 @@ export const MeshRenderer = memo(function MeshRenderer({
           />
         </mesh>
       )}
+
+      {_isSelected && !paintFocus && selectionEdgeGeometry && (
+        <lineSegments geometry={selectionEdgeGeometry} renderOrder={2} raycast={() => null}>
+          <lineBasicMaterial
+            color={selectionOutlineColor}
+            transparent
+            opacity={0.95}
+            depthTest={!viewportXRay}
+            depthWrite={false}
+            polygonOffset
+            polygonOffsetFactor={-2.5}
+            polygonOffsetUnits={-2.5}
+          />
+        </lineSegments>
+      )}
     </group>
   )
 }, (prev, next) =>
   prev.object === next.object &&
   prev.object.smoothShading === next.object.smoothShading &&
   prev.isSelected === next.isSelected &&
+  prev.isPrimary === next.isPrimary &&
   prev.paintFocus === next.paintFocus &&
   prev.facetExaggeration === next.facetExaggeration &&
   prev.showDensityHeatmap === next.showDensityHeatmap &&

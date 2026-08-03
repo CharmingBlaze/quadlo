@@ -5,6 +5,7 @@ import { VIEWPORT_DISPLAY_CONFIG } from '../rendering/viewportDisplay'
 import { useTheme } from '../theme/useTheme'
 import { useKeyLightShadowFit } from './viewport/ViewportShadowSetup'
 import { GAME_SUN_OFFSET } from '../viewport/viewportShadowBounds'
+import { useViewportRuntime } from './viewport/ViewportRuntimeContext'
 
 const GAME_SUN_POSITION: [number, number, number] = [
   GAME_SUN_OFFSET.x,
@@ -31,6 +32,9 @@ function KeyDirectionalLight({
       intensity={intensity}
       color={color}
       castShadow={castShadow}
+      shadow-mapSize-width={1024}
+      shadow-mapSize-height={1024}
+      shadow-bias={-0.0004}
     />
   )
 }
@@ -40,14 +44,13 @@ function KeyDirectionalLight({
  * front/right/top/perspective all preview the same in-engine contact shadows.
  */
 export function ViewportLighting() {
+  const { view } = useViewportRuntime()
   const mode = useAppStore((s) => s.viewportDisplayMode)
   const shadowsEnabled = useAppStore((s) => s.viewportShadowsEnabled)
   const cfg = VIEWPORT_DISPLAY_CONFIG[mode]
   const { text, css } = useTheme()
-  const sky = text
-  const ground = css['--viewport-bg-deep']
   const fill = css['--grid-section']
-  const castShadow = shadowsEnabled && mode !== 'unlit' && mode !== 'wireframe'
+  const castShadow = shadowsEnabled && view === 'perspective' && mode !== 'unlit' && mode !== 'wireframe'
 
   if (!cfg.gameLighting && mode === 'unlit') {
     return null
@@ -58,10 +61,10 @@ export function ViewportLighting() {
   if (mode === 'model') {
     return (
       <>
-        <ambientLight intensity={0.3 * ambientBoost} />
-        <hemisphereLight color={sky} groundColor={ground} intensity={0.15 * ambientBoost} />
-        <KeyDirectionalLight intensity={1.12} castShadow={castShadow} />
-        <directionalLight position={[-80, 60, -100]} intensity={0.26} />
+        <ambientLight intensity={0.01 * ambientBoost} />
+        <KeyDirectionalLight intensity={1.45} castShadow={castShadow} />
+        <directionalLight position={[-80, 40, 50]} intensity={0.2} color={fill} />
+        <directionalLight position={[-40, 60, -100]} intensity={0.45} />
       </>
     )
   }
@@ -69,20 +72,20 @@ export function ViewportLighting() {
   if (cfg.gameLighting) {
     return (
       <>
-        <ambientLight intensity={0.36 * ambientBoost} />
-        <hemisphereLight color={sky} groundColor={ground} intensity={0.2 * ambientBoost} />
-        <KeyDirectionalLight intensity={0.88} color={text} castShadow={castShadow} />
-        <directionalLight position={[-40, 40, -80]} intensity={0.15} color={fill} />
+        <ambientLight intensity={0.02 * ambientBoost} />
+        <KeyDirectionalLight intensity={1.3} color={text} castShadow={castShadow} />
+        <directionalLight position={[-40, 40, 80]} intensity={0.25} color={fill} />
+        <directionalLight position={[-20, 40, -80]} intensity={0.35} color={fill} />
       </>
     )
   }
 
   return (
     <>
-      <ambientLight intensity={0.28 * ambientBoost} />
-      <hemisphereLight color="#c8c8c8" groundColor={ground} intensity={0.16 * ambientBoost} />
-      <KeyDirectionalLight intensity={1.05} castShadow={castShadow} />
-      <directionalLight position={[-80, -50, -100]} intensity={0.24} />
+      <ambientLight intensity={0.01 * ambientBoost} />
+      <KeyDirectionalLight intensity={1.4} castShadow={castShadow} />
+      <directionalLight position={[-80, 40, 50]} intensity={0.2} />
+      <directionalLight position={[-40, 60, -100]} intensity={0.4} />
     </>
   )
 }

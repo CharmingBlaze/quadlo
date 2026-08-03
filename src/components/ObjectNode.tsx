@@ -57,7 +57,7 @@ function ObjectSelectionOutline({
       <lineBasicMaterial
         color={isPrimary ? objectSelectOutline : objectSelectOutlineSecondary}
         transparent
-        opacity={isPrimary ? 1 : 0.86}
+        opacity={isPrimary ? 0.25 : 0.18}
         depthTest
         depthWrite={false}
         toneMapped={false}
@@ -263,6 +263,7 @@ function ObjectNodeInner({
           <MeshRenderer
             object={object}
             isSelected={isSelected}
+            isPrimary={isPrimary}
             paintFocus={pixelPaintFocus}
             facetExaggeration={facetExaggeration}
             showDensityHeatmap={showDensityHeatmap}

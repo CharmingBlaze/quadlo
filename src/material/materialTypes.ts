@@ -32,7 +32,7 @@ export interface Material {
 }
 
 /** Game-friendly defaults: matte, non-metallic surfaces unless you opt in. */
-export const DEFAULT_MATERIAL_ROUGHNESS = 1
+export const DEFAULT_MATERIAL_ROUGHNESS = 0.65
 export const DEFAULT_MATERIAL_METALNESS = 0
 
 export type MaterialSurfacePreset =

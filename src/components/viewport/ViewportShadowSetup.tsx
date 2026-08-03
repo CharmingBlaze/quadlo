@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
-import { useThree } from '@react-three/fiber'
+import { useThree, useFrame } from '@react-three/fiber'
 import type { DirectionalLight, WebGLRenderer } from 'three'
 import { useAppStore } from '../../store/appStore'
 import type { ViewType } from '../../store/appStore'
@@ -13,18 +13,39 @@ import {
   type ShadowFitParams,
 } from '../../viewport/viewportShadowBounds'
 
-/** Sync renderer shadowMap with the user toggle. Manual updates only — no per-frame regen. */
+import { useTheme } from '../../theme/useTheme'
+
+/** Sync WebGL clear color with current theme --viewport-bg token. */
+export function ViewportClearColorSync() {
+  const { css } = useTheme()
+  const gl = useThree((s) => s.gl)
+  const invalidate = useThree((s) => s.invalidate)
+
+  useLayoutEffect(() => {
+    const bg = css['--viewport-bg'] ?? '#1c1e22'
+    gl.setClearColor(bg, 1)
+    invalidate()
+  }, [css, gl, invalidate])
+
+  return null
+}
+
+/** Sync renderer shadowMap with the user toggle. Demand motion updates during active frames. */
 export function ViewportShadowRendererSync() {
   const enabled = useAppStore((s) => s.viewportShadowsEnabled)
   const gl = useThree((s) => s.gl)
-  const invalidate = useThree((s) => s.invalidate)
+
+  useFrame(() => {
+    if (enabled && gl.shadowMap.enabled) {
+      gl.shadowMap.needsUpdate = true
+    }
+  })
 
   useLayoutEffect(() => {
     gl.shadowMap.enabled = enabled
     gl.shadowMap.autoUpdate = false
     if (enabled) markShadowMapDirty(gl)
-    invalidate()
-  }, [enabled, gl, invalidate])
+  }, [enabled, gl])
 
   return null
 }
@@ -38,7 +59,7 @@ export function ViewportShadowPlane({ view }: { view: ViewType }) {
   if (!enabled) return null
   if (view === 'bottom') return null
 
-  const opacity = isOrthoView(view) ? 0.38 : 0.34
+  const opacity = isOrthoView(view) ? 0.38 : 0.28
 
   return (
     <mesh

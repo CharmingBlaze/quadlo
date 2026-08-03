@@ -5,12 +5,12 @@ import type { ViewportFitFrame } from './fitViewports'
 /** Shared key-light offset — matches Game display mode sun. */
 export const GAME_SUN_OFFSET: Vec3 = { x: 80, y: 120, z: 60 }
 
-/** 1024 keeps four viewports light on the GPU; still sharp after scene fit. */
+/** 1024 keeps four viewports light on the GPU (~1MB VRAM); still sharp after scene fit. */
 export const SHADOW_MAP_SIZE = 1024
 export const SHADOW_FRUSTUM_MIN = 12
 export const SHADOW_FRUSTUM_MAX = 420
-export const SHADOW_FIT_MARGIN = 1.45
-export const SHADOW_EMPTY_RADIUS = 24
+export const SHADOW_FIT_MARGIN = 1.25
+export const SHADOW_EMPTY_RADIUS = 6
 
 export interface ShadowFitParams {
   center: Vec3
@@ -122,7 +122,7 @@ export function applyDirectionalShadowFit(
   light.target.updateMatrixWorld()
 
   light.shadow.mapSize.set(mapSize, mapSize)
-  light.shadow.bias = -0.00028
+  light.shadow.bias = -0.0004
   light.shadow.normalBias = 0.03
   light.shadow.radius = 1.5
 

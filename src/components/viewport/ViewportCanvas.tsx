@@ -1,5 +1,6 @@
 import { Canvas } from '@react-three/fiber'
-import { NoToneMapping, PCFSoftShadowMap } from 'three'
+import { NoToneMapping, PCFSoftShadowMap, PMREMGenerator, SRGBColorSpace } from 'three'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type * as THREE from 'three'
 import { getCameraSetup } from '../../scene/viewTypes'
 import type { ViewType } from '../../store/appStore'
@@ -40,7 +41,6 @@ export function ViewportCanvas({
   componentGizmoActive,
   componentGizmoObject,
   billboardImagesLength,
-  viewportBg,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>
   cameraRef: React.MutableRefObject<THREE.Camera | null>
@@ -70,13 +70,11 @@ export function ViewportCanvas({
   componentGizmoActive: boolean
   componentGizmoObject: SceneObject | null | undefined
   billboardImagesLength: number
-  viewportBg: string
 }) {
   const {
     view,
     slotIndex,
     continuousFrames,
-    quality,
   } = useViewportRuntime()
   const setup = getCameraSetup(view)
   const isOrtho = setup.orthographic
@@ -86,7 +84,7 @@ export function ViewportCanvas({
       key={isOrtho ? 'ortho' : 'perspective'}
       className="viewport-canvas-root"
       frameloop={continuousFrames ? 'always' : 'demand'}
-      dpr={quality === 'high' ? ([1, 2] as [number, number]) : 1}
+      dpr={[1, 2]}
       orthographic={isOrtho}
       eventSource={containerRef as React.RefObject<HTMLElement>}
       camera={{
@@ -96,20 +94,27 @@ export function ViewportCanvas({
         far: 4000,
         up: setup.up,
       }}
-      gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+      gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
       style={{
-        background: viewportBg,
         pointerEvents: canvasPointerEvents ? 'auto' : 'none',
         touchAction: canvasPointerEvents ? 'none' : undefined,
       }}
-      onCreated={({ camera, gl, invalidate }) => {
-        gl.outputColorSpace = 'srgb'
-        // Linear output keeps DCC viewport shading crisp; default ACES wash lifts midtones.
+      onCreated={({ camera, gl, invalidate, scene }) => {
+        gl.outputColorSpace = SRGBColorSpace
         gl.toneMapping = NoToneMapping
-        gl.toneMappingExposure = 1
+        gl.setClearColor(0x1c1e22, 1)
         gl.shadowMap.type = PCFSoftShadowMap
         gl.shadowMap.enabled = true
         gl.shadowMap.autoUpdate = false
+
+        // Generate procedural studio environment maps for high-quality PBR surface reflections
+        const pmremGenerator = new PMREMGenerator(gl)
+        const roomEnv = new RoomEnvironment()
+        const envTexture = pmremGenerator.fromScene(roomEnv).texture
+        scene.environment = envTexture
+        roomEnv.dispose()
+        pmremGenerator.dispose()
+
         cameraRef.current = camera
         applyOrthoCamera(view as ViewType, camera)
         // Demand frameloop: guarantee a first paint after mount / HMR remount.
@@ -146,7 +151,6 @@ export function ViewportCanvas({
         componentGizmoActive={componentGizmoActive}
         componentGizmoObject={componentGizmoObject}
         billboardImagesLength={billboardImagesLength}
-        viewportBg={viewportBg}
       />
     </Canvas>
   )

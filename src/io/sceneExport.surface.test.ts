@@ -123,7 +123,7 @@ describe('export material surface transfer', () => {
       opacity: 1,
       doubleSided: false,
     })
-    expect(surface.roughness).toBe(1)
+    expect(surface.roughness).toBe(0.65)
     expect(surface.metalness).toBe(0)
   })
 

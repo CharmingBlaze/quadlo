@@ -81,6 +81,23 @@ function applyPolylineToBufferGeometry(
   geometry.computeBoundingSphere()
 }
 
+/** Safely compute dashed line distances if position attribute exists and contains >= 2 points. */
+function safeComputeLineDistances(
+  line: THREE.Line,
+  geometry: THREE.BufferGeometry,
+  dashed: boolean
+): void {
+  if (!dashed) return
+  const pos = geometry.getAttribute('position') as THREE.BufferAttribute | undefined
+  if (pos && pos.count >= 2) {
+    try {
+      line.computeLineDistances()
+    } catch {
+      // Ignore transient attribute updates
+    }
+  }
+}
+
 /**
  * Viewport polyline overlay.
  *
@@ -99,7 +116,7 @@ export function ViewportLine({
   opacity = 1,
   depthTest = true,
   depthWrite = true,
-  toneMapped = true,
+  toneMapped = false,
   renderOrder,
   visible = true,
   frustumCulled = false,
@@ -118,9 +135,7 @@ export function ViewportLine({
     if (polylinesEqual(lastPointsRef.current, points)) return
 
     applyPolylineToBufferGeometry(geometry, points)
-    if (dashed && points.length >= 2) {
-      line.computeLineDistances()
-    }
+    safeComputeLineDistances(line, geometry, dashed)
 
     lastPointsRef.current = copyPolyline(points)
     invalidate()
@@ -140,9 +155,7 @@ export function ViewportLine({
     }
     if (line.material !== mat) {
       line.material = mat
-      if (dashed && (lastPointsRef.current?.length ?? 0) >= 2) {
-        line.computeLineDistances()
-      }
+      safeComputeLineDistances(line, geometry, dashed)
     }
     invalidate()
   }, [

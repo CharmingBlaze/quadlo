@@ -30,9 +30,9 @@ const SLOT_BY_DEFAULT_HEX: Record<number, GizmoSlot> = {
 
 /** Pro DCC axis RGB — readable on dark viewports without harsh primaries. */
 const GIZMO_AXIS_RGB = {
-  x: 0xf07070,
-  y: 0x66dc78,
-  z: 0x6cbaf2,
+  x: 0xeb4d4b, // rich, vivid red
+  y: 0x2ecc71, // rich, vivid green
+  z: 0x3498db, // rich, vivid blue
 } as const
 
 /** Plane slots map to the axis normal (XY→Z, XZ→Y, YZ→X). */
@@ -92,6 +92,15 @@ function themedMaterialColor(
   const slot = resolveSlot(handleName, mat)
   const hex = slotColor(theme, slot)
   mat.color.setHex(hex)
+  mat.depthTest = false
+  mat.depthWrite = false
+  if (['XY', 'YZ', 'XZ'].includes(handleName ?? '')) {
+    mat.transparent = true
+    mat.opacity = 0.35
+  } else {
+    mat.transparent = true
+    mat.opacity = 0.95
+  }
   const ext = mat as GizmoMaterial & { tempColor?: THREE.Color }
   if (!(ext.tempColor instanceof THREE.Color)) {
     ext.tempColor = new THREE.Color(hex)
@@ -115,10 +124,17 @@ export function applyGizmoGeometryPolish(controls: TransformControlsImpl): void 
       if (!mesh.geometry || !mesh.name) return
 
       if (mesh.geometry.type === 'PlaneGeometry' && ['XY', 'YZ', 'XZ'].includes(mesh.name)) {
-        mesh.scale.multiplyScalar(1.14)
+        mesh.scale.multiplyScalar(1.18)
       }
       if (mesh.name === 'XYZ' && mesh.geometry.type === 'OctahedronGeometry') {
-        mesh.scale.multiplyScalar(1.15)
+        mesh.scale.multiplyScalar(1.2)
+      }
+      if (mesh.material) {
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        for (const mat of materials) {
+          mat.depthTest = false
+          mat.depthWrite = false
+        }
       }
     })
   }
