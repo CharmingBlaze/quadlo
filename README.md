@@ -4,19 +4,37 @@ Quadlo is a Windows desktop 3D modelling and pixel-art application built with Re
 
 ![Quadlo cover](docs/images/cover.png)
 
+*Quad view with lighting and shadows*
+
 ## Screenshots
 
-Viewport and scene editing:
+Create and sketch tooling:
 
-![Viewport](docs/images/viewport.png)
+![Create UI](docs/images/create-ui.png)
 
-*Main 3D viewport with mesh editing tools*
+*Empty workspace with sketch and create tools*
 
-Create panel and tooling:
+![Sketch stroke](docs/images/sketch.png)
 
-![Create panel](docs/images/create-panel.png)
+*Sketch stroke drawn in the viewport*
 
-*Side panel create tools and workspace chrome*
+![Blob mesh](docs/images/blob-mesh.png)
+
+*Organic blob mesh generated from a sketch*
+
+CAD box workflow:
+
+![CAD box draft](docs/images/cad-box-draft.png)
+
+*CAD box draft with dashed preview*
+
+![CAD box wireframe](docs/images/cad-box-wireframe.png)
+
+*CAD box in wireframe*
+
+![CAD box solid](docs/images/cad-box.png)
+
+*CAD box solid with selection*
 
 ## Prerequisites
 
