@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Line } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import { useAppStore, type ViewType } from '../store/appStore'
 import { isOrthoView } from '../primitives/viewAxes'
 import { symmetryLineInView, worldSymmetryLineEndpoints } from '../symmetry/symmetry'
@@ -31,7 +31,7 @@ export function SymmetryPlaneVisual({ view }: SymmetryPlaneVisualProps) {
   if (!points) return null
 
   return (
-    <Line
+    <ViewportLine
       points={points}
       color={planeColor}
       lineWidth={1.5}

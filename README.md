@@ -2,6 +2,22 @@
 
 Quadlo is a Windows desktop 3D modelling and pixel-art application built with React, Three.js, Zustand, Go, and Wails.
 
+![Quadlo cover](docs/images/cover.png)
+
+## Screenshots
+
+Viewport and scene editing:
+
+![Viewport](docs/images/viewport.png)
+
+*Main 3D viewport with mesh editing tools*
+
+Create panel and tooling:
+
+![Create panel](docs/images/create-panel.png)
+
+*Side panel create tools and workspace chrome*
+
 ## Prerequisites
 
 - Node.js 22

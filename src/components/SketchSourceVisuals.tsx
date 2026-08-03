@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react'
-import { Line } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useShallow } from 'zustand/react/shallow'
@@ -71,8 +71,8 @@ export function SketchSourceVisuals() {
   const handles = object.sketchSource.isClosed ? points.slice(0, -1) : points
   return (
     <group renderOrder={44}>
-      <Line points={points} color="#080a0e" lineWidth={5} depthTest={false} toneMapped={false} />
-      <Line points={points} color={accent} lineWidth={2} depthTest={false} toneMapped={false} />
+      <ViewportLine points={points} color="#080a0e" lineWidth={5} depthTest={false} toneMapped={false} />
+      <ViewportLine points={points} color={accent} lineWidth={2} depthTest={false} toneMapped={false} />
       {handles.map((point, index) => (
         <SourceHandle key={`sketch-source-${index}`} position={point} color={accent} />
       ))}

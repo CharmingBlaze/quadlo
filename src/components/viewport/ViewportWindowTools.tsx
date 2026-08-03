@@ -12,8 +12,8 @@ function ToolSvg({ children }: { children: ReactNode }) {
     <svg
       className="viewport-lw-icon"
       viewBox="0 0 16 16"
-      width="13"
-      height="13"
+      width="15"
+      height="15"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.35"
@@ -63,6 +63,22 @@ function FrameIcon() {
   )
 }
 
+function LayoutToggleIcon({ vertical }: { vertical: boolean }) {
+  return (
+    <ToolSvg>
+      {vertical ? (
+        <>
+          <path d="M5.5 3.5v9M8 3.5v9M10.5 3.5v9" />
+        </>
+      ) : (
+        <>
+          <path d="M3.5 5.5h9M3.5 8h9M3.5 10.5h9" />
+        </>
+      )}
+    </ToolSvg>
+  )
+}
+
 function MaximizeIcon({ maximized }: { maximized: boolean }) {
   return (
     <ToolSvg>
@@ -104,6 +120,8 @@ export function ViewportWindowTools({
     requestViewportFit,
     viewportStickyNav,
     setViewportStickyNav,
+    viewportLwToolsLayout,
+    setViewportLwToolsLayout,
   } = useAppStore(
     useShallow((s) => ({
       maximizedSlot: s.maximizedSlot,
@@ -114,6 +132,8 @@ export function ViewportWindowTools({
       requestViewportFit: s.requestViewportFit,
       viewportStickyNav: s.viewportStickyNav,
       setViewportStickyNav: s.setViewportStickyNav,
+      viewportLwToolsLayout: s.viewportLwToolsLayout,
+      setViewportLwToolsLayout: s.setViewportLwToolsLayout,
     }))
   )
   const maximized = maximizedSlot === slotIndex
@@ -177,9 +197,17 @@ export function ViewportWindowTools({
     toggleMaximizedView(slotIndex)
   }
 
+  const isVerticalLayout = viewportLwToolsLayout === 'right-middle'
+
+  const toggleLayout = (e: React.MouseEvent) => {
+    stopViewportEvent(e)
+    onActivate()
+    setViewportLwToolsLayout(isVerticalLayout ? 'top-right' : 'right-middle')
+  }
+
   return (
     <div
-      className={`viewport-lw-tools${isPerspective ? ' is-perspective' : ' is-ortho'}`}
+      className={`viewport-lw-tools${isPerspective ? ' is-perspective' : ' is-ortho'}${isVerticalLayout ? ' is-vertical' : ''}`}
       role="toolbar"
       aria-label={isPerspective ? 'Perspective view tools' : 'Orthographic view tools'}
       onClick={stopViewportEvent}
@@ -261,6 +289,17 @@ export function ViewportWindowTools({
         onClick={onMaximizeClick}
       >
         <MaximizeIcon maximized={maximized} />
+      </button>
+      <span className="viewport-lw-divider" aria-hidden />
+      <button
+        type="button"
+        className="viewport-lw-btn viewport-lw-btn-layout"
+        title={isVerticalLayout ? 'Move view tools to top-right bar' : 'Move view tools to right-side rail'}
+        aria-label={isVerticalLayout ? 'Use top-right view tools bar' : 'Use right-side view tools rail'}
+        aria-pressed={isVerticalLayout}
+        onClick={toggleLayout}
+      >
+        <LayoutToggleIcon vertical={isVerticalLayout} />
       </button>
     </div>
   )

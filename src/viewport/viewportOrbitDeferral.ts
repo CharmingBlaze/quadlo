@@ -40,11 +40,15 @@ export function isViewportLeftButtonBlocked(): boolean {
   return leftButtonBlocked
 }
 
-export function registerLeftButtonPolicyListener(fn: LeftButtonPolicyListener | null): void {
-  if (fn) leftButtonPolicyListeners.add(fn)
-  else if (leftButtonPolicyListeners.size > 0) {
-    // Remove stale listeners on unmount — each viewport registers one closure.
-    leftButtonPolicyListeners.clear()
+export function isSuppressingSyntheticOrbitEvents(): boolean {
+  return suppressSyntheticOrbitEvents
+}
+
+/** Register a listener; returns an unregister function (safe with multiple viewports). */
+export function registerLeftButtonPolicyListener(fn: LeftButtonPolicyListener): () => void {
+  leftButtonPolicyListeners.add(fn)
+  return () => {
+    leftButtonPolicyListeners.delete(fn)
   }
 }
 

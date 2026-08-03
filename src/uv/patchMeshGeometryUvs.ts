@@ -9,6 +9,16 @@ type UvWritePlan = {
   flatShading: boolean
   faceCount: number
   uvCornerCount: number
+  topologyKey: string
+}
+
+function faceUvTopologyKey(object: SceneObject): string {
+  let key = ''
+  for (const face of object.faceUvIndices ?? []) {
+    for (const ui of face) key += `${ui},`
+    key += ';'
+  }
+  return key
 }
 
 const planByGeometry = new WeakMap<THREE.BufferGeometry, UvWritePlan>()
@@ -56,12 +66,14 @@ function getWritePlan(
 ): UvWritePlan {
   const faceCount = object.faces.length
   const uvCornerCount = countUvCorners(object)
+  const topologyKey = faceUvTopologyKey(object)
   const cached = planByGeometry.get(geometry)
   if (
     cached &&
     cached.flatShading === flatShading &&
     cached.faceCount === faceCount &&
-    cached.uvCornerCount === uvCornerCount
+    cached.uvCornerCount === uvCornerCount &&
+    cached.topologyKey === topologyKey
   ) {
     return cached
   }
@@ -73,6 +85,7 @@ function getWritePlan(
     flatShading,
     faceCount,
     uvCornerCount,
+    topologyKey,
   }
   planByGeometry.set(geometry, plan)
   return plan
@@ -86,12 +99,19 @@ export function patchMeshGeometryUvs(
   geometry: THREE.BufferGeometry,
   object: SceneObject,
   uvs: readonly Uv2[],
-  flatShading: boolean
+  flatShading: boolean,
+  faceUvIndicesOverride?: readonly (readonly number[])[]
 ): boolean {
   const attr = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
-  if (!attr || !object.faceUvIndices?.length || object.faces.length === 0) return false
+  if (!attr || object.faces.length === 0) return false
 
-  const plan = getWritePlan(geometry, object, flatShading)
+  const topologyObject =
+    faceUvIndicesOverride !== undefined
+      ? { ...object, faceUvIndices: faceUvIndicesOverride.map((face) => [...face]) }
+      : object
+  if (!topologyObject.faceUvIndices?.length) return false
+
+  const plan = getWritePlan(geometry, topologyObject, flatShading)
   const arr = attr.array as Float32Array
   const { poolIndexPerSlot, slotCount } = plan
 

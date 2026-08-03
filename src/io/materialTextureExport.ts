@@ -8,6 +8,12 @@ import type { PixelDocument } from '../pixel/pixelTypes'
 import type { UvTextureInfo } from '../store/appStore'
 import { downloadBlob, downloadJSON, JSON_EXPORT_FILTERS, ZIP_EXPORT_FILTERS } from './download'
 import {
+  buildExportTargetHints,
+  resolveExportSurface,
+  type ExportSurfaceSnapshot,
+  type ExportTargetHints,
+} from './exportMaterialSurface'
+import {
   bakeMaterialTexturePixels,
   materialTextureProcessKey,
 } from './exportTextureBake'
@@ -28,10 +34,24 @@ export interface MaterialExportEntry {
   objectId: string
   objectName: string
   material: Material
+  surface: ExportSurfaceSnapshot
+  targets: ExportTargetHints
   textureId: string | null
   textureFile: string | null
   textureWidth: number | null
   textureHeight: number | null
+}
+
+export interface MaterialsManifest {
+  version: 2
+  exportedAt: string
+  recommendedFormats: {
+    gamesAndBlender: 'glb'
+    texturedLegacy: 'obj-zip'
+    sidecar: 'materials-json'
+  }
+  notes: string
+  materials: MaterialExportEntry[]
 }
 
 const CRC_TABLE = (() => {
@@ -218,16 +238,23 @@ export async function collectObjectTextureFiles(
 export function buildMaterialsManifest(
   objects: SceneObject[],
   ctx: TextureExportContext
-): { version: 1; exportedAt: string; materials: MaterialExportEntry[] } {
+): MaterialsManifest {
   const materials: MaterialExportEntry[] = objects.map((obj) => {
     const material = resolveEffectiveMaterial(obj)
+    const surface = resolveExportSurface(material)
     const textureId = material.mode === 'texture' ? material.textureId ?? obj.id : null
     const meta = textureId ? ctx.objectTextures[textureId] : undefined
     const doc = textureId ? ctx.pixelDocuments[textureId] : undefined
+    const hasAlpha =
+      Boolean(doc) && material.mode === 'texture'
+        ? bakeMaterialTexturePixels(doc!, material).hasAlpha
+        : false
     return {
       objectId: obj.id,
       objectName: obj.name,
       material,
+      surface,
+      targets: buildExportTargetHints(surface, hasAlpha),
       textureId,
       textureFile:
         textureId && doc ? textureExportFilename(obj, textureId, material, ctx) : null,
@@ -237,8 +264,15 @@ export function buildMaterialsManifest(
   })
 
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
+    recommendedFormats: {
+      gamesAndBlender: 'glb',
+      texturedLegacy: 'obj-zip',
+      sidecar: 'materials-json',
+    },
+    notes:
+      'GLB/GLTF embeds metallic-roughness PBR (roughness, metalness, opacity, doubleSided). OBJ bundle includes this JSON plus MTL blocky3d_pbr comments for Blender scripts.',
     materials,
   }
 }

@@ -21,6 +21,7 @@ import {
   rgbaToBytes,
 } from './pixelTools'
 import { clearPixelCompositeCache } from './pixelCompositeCache'
+import { DEFAULT_SEAM_BLEED_PASSES } from './pixelDilate'
 import {
   scheduleDocPreview,
   syncDocPreviewGpu,
@@ -35,7 +36,7 @@ export {
   flushDocPreviewGpu as flushPixelDocumentGpuSync,
   resyncAllDocPreviews as resyncAllPixelDocuments,
 } from './pixelPreview'
-export { applyDocumentPaint, resetSoftBrushStroke } from './pixelPaint'
+export { applyDocumentPaint, resetSoftBrushStroke, type PaintPoint } from './pixelPaint'
 
 /** @deprecated Use applyDocumentPaint */
 export const paintAtPixelLive = (
@@ -148,6 +149,18 @@ export interface PixelEditorState {
   pixelEditorBrushOpacity: number
   /** Paint Brush flow 0–1 (paint per dab). */
   pixelEditorBrushFlow: number
+  /** Dab spacing as a fraction of brush diameter (Photoshop-style). */
+  pixelEditorBrushSpacing: number
+  /** Eraser fades alpha with the brush falloff instead of clearing texels outright. */
+  pixelEditorSoftEraser: boolean
+  /** Stylus pressure drives brush size. */
+  pixelEditorPressureSize: boolean
+  /** Stylus pressure drives brush opacity. */
+  pixelEditorPressureOpacity: boolean
+  /** Pad island edges after a model-paint stroke so UV seams stop showing. */
+  pixelEditorSeamBleed: boolean
+  /** How many pixels of padding the bleed pass writes. */
+  pixelEditorSeamBleedPasses: number
   pixelEditorPixelPerfect: boolean
   pixelEditorSymmetryH: boolean
   pixelEditorSymmetryV: boolean
@@ -183,6 +196,12 @@ export const pixelEditorInitialState: PixelEditorState = {
   pixelEditorBrushHardness: 0.35,
   pixelEditorBrushOpacity: 1,
   pixelEditorBrushFlow: 0.8,
+  pixelEditorBrushSpacing: 0.18,
+  pixelEditorSoftEraser: false,
+  pixelEditorPressureSize: true,
+  pixelEditorPressureOpacity: false,
+  pixelEditorSeamBleed: true,
+  pixelEditorSeamBleedPasses: DEFAULT_SEAM_BLEED_PASSES,
   pixelEditorPixelPerfect: false,
   pixelEditorSymmetryH: false,
   pixelEditorSymmetryV: false,

@@ -1,4 +1,9 @@
 import type { ViewMoveBasis } from '../utils/viewNavigation'
+import {
+  loadViewportLwToolsLayout,
+  saveViewportLwToolsLayout,
+  type ViewportLwToolsLayout,
+} from './viewportLwToolsPersistence'
 import type { ViewportDisplayMode } from '../rendering/viewportDisplay'
 import { DEFAULT_VIEWPORT_SLOT_VIEWS } from '../scene/viewTypes'
 import type { SelectableViewType, ViewType, ViewportSlotIndex } from '../scene/viewTypes'
@@ -406,6 +411,8 @@ export interface ViewportResetRequest {
 /** LightWave-style armed viewport navigation (LMB drag in viewport). */
 export type ViewportStickyNav = 'pan' | 'orbit' | 'dolly'
 
+export type { ViewportLwToolsLayout } from './viewportLwToolsPersistence'
+
 export interface ViewportLayoutState {
   activeView: ViewType
   /** Slot index (0–3) when quad layout is maximized to one pane. */
@@ -434,6 +441,8 @@ export interface ViewportLayoutState {
   viewportResetRequest: ViewportResetRequest | null
   /** Armed LightWave nav tool — LMB drags use this mode until toggled off or Escape. */
   viewportStickyNav: ViewportStickyNav | null
+  /** LightWave viewport gadget cluster placement. */
+  viewportLwToolsLayout: ViewportLwToolsLayout
 }
 
 export interface ViewportLayoutActions {
@@ -458,6 +467,7 @@ export interface ViewportLayoutActions {
   requestViewportReset: () => void
   resetViewportQuadLayout: () => void
   setViewportStickyNav: (mode: ViewportStickyNav | null) => void
+  setViewportLwToolsLayout: (layout: ViewportLwToolsLayout) => void
 }
 
 export type ViewportSlice = ViewportLayoutState & ViewportLayoutActions
@@ -498,6 +508,7 @@ export const viewportLayoutInitialState: ViewportLayoutState = {
   viewportFitRequest: null,
   viewportResetRequest: null,
   viewportStickyNav: null,
+  viewportLwToolsLayout: loadViewportLwToolsLayout() ?? 'top-right',
 }
 
 export function createViewportSlice<T extends ViewportLayoutState>(
@@ -675,6 +686,13 @@ export function createViewportSlice<T extends ViewportLayoutState>(
       set((s) =>
         s.viewportStickyNav === mode ? (s as T) : ({ viewportStickyNav: mode } as Partial<T>)
       ),
+
+    setViewportLwToolsLayout: (layout) =>
+      set((s) => {
+        if (s.viewportLwToolsLayout === layout) return s as T
+        saveViewportLwToolsLayout(layout)
+        return { viewportLwToolsLayout: layout } as Partial<T>
+      }),
   }
 }
 

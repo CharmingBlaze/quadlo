@@ -76,6 +76,11 @@ export interface SceneObject {
   faceMaterials?: (Material | null)[]
   /** Logical face groups — indices into `faces` that form one selectable region. */
   faceGroups?: number[][]
+  /**
+   * User-marked UV seams as `edgeKey(a, b)` strings. Unwrap treats these as hard
+   * island boundaries in addition to the automatic angle-based splits.
+   */
+  seamEdges?: string[]
   /** Box = full 0–1 per face; perFace = planar projection per face. */
   uvMappingMode?: 'box' | 'perFace'
   /** True after automatic seam detection + island packing has been applied. */
@@ -132,6 +137,13 @@ export class HalfEdgeMesh {
   halfEdges: HalfEdge[] = []
   topologyLocked = false
 
+  /**
+   * Outgoing half-edge indices per vertex, built lazily from `halfEdges`.
+   * Sculpt brushes hit every vertex in the brush radius each dab, so a linear
+   * half-edge scan per vertex made stroke cost O(vertices x half-edges).
+   */
+  private vertexHalfEdges: number[][] | null = null
+
   static fromObject(obj: SceneObject): HalfEdgeMesh {
     const mesh = new HalfEdgeMesh()
     mesh.positions = obj.positions.map((p) => ({ ...p }))
@@ -181,6 +193,7 @@ export class HalfEdgeMesh {
       subdLevels: meta.subdLevels,
       facetExaggeration: meta.facetExaggeration ?? 0,
       color: meta.color ?? DEFAULT_MESH_COLOR,
+      seamEdges: meta.seamEdges ? [...meta.seamEdges] : undefined,
       uvMappingMode: meta.uvMappingMode,
       uvAutoPacked: meta.uvAutoPacked,
       uvLayoutVersion: meta.uvLayoutVersion,
@@ -228,6 +241,7 @@ export class HalfEdgeMesh {
 
   buildHalfEdges(): void {
     this.halfEdges = []
+    this.vertexHalfEdges = null
     const edgeMap = new Map<string, number>()
 
     for (let fi = 0; fi < this.faces.length; fi++) {
@@ -265,12 +279,27 @@ export class HalfEdgeMesh {
     }
   }
 
+  /** Outgoing half-edge indices for `vi`, using a lazily built per-vertex index. */
+  outgoingHalfEdges(vi: number): number[] {
+    if (this.halfEdges.length === 0) return []
+    let index = this.vertexHalfEdges
+    if (!index) {
+      index = Array.from({ length: this.positions.length }, () => [] as number[])
+      for (let i = 0; i < this.halfEdges.length; i++) {
+        const origin = this.halfEdges[i]!.origin
+        const bucket = index[origin]
+        if (bucket) bucket.push(i)
+      }
+      this.vertexHalfEdges = index
+    }
+    return index[vi] ?? []
+  }
+
   getVertexNeighbors(vi: number): number[] {
     if (this.halfEdges.length > 0) {
       const neighbors = new Set<number>()
-      for (let i = 0; i < this.halfEdges.length; i++) {
+      for (const i of this.outgoingHalfEdges(vi)) {
         const he = this.halfEdges[i]!
-        if (he.origin !== vi) continue
         const next = this.halfEdges[he.next]
         if (next) neighbors.add(next.origin)
       }

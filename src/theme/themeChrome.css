@@ -1899,14 +1899,14 @@ html[data-theme='winxp'] .side-panel .side-checkbox input[type='checkbox'] {
 html[data-theme='winxp'] .side-panel .side-slider input[type='range']::-webkit-slider-thumb {
   background: linear-gradient(180deg, #ffffff 0%, var(--bg-hover) 100%);
   border: 1px solid var(--accent-dim);
-  border-radius: 3px;
+  border-radius: 0;
   box-shadow: 0 1px 2px rgb(40 70 110 / 25%);
 }
 
 html[data-theme='winxp'] .side-panel .side-slider input[type='range']::-moz-range-thumb {
   background: linear-gradient(180deg, #ffffff 0%, var(--bg-hover) 100%);
   border: 1px solid var(--accent-dim);
-  border-radius: 3px;
+  border-radius: 0;
 }
 
 /* Vista / 7 — Aero glass */

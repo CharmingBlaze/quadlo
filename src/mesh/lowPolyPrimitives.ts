@@ -6,7 +6,7 @@ import {
   capsuleRadialSegments,
 } from '../primitives/capsuleMesh'
 import type { ViewType } from '../store/appStore'
-import { projectMeshToView } from '../stroke/worldProjection'
+import { projectMeshToView, type StrokePlaneFrame } from '../stroke/worldProjection'
 import { isOrthoView } from '../primitives/viewAxes'
 import type { ShapeKind } from '../vector/types'
 import {
@@ -21,7 +21,7 @@ import {
   applyRoundedBoxParams,
   type RoundedBoxParams,
 } from './roundedBox'
-import { finalizeProjectedShapeMesh } from './meshWinding'
+import { finalizeProjectedShapeMesh, finalizePerspectiveProjectedShapeMesh } from './meshWinding'
 import { uv2 } from '../uv/uvTypes'
 
 export interface ShapeMeshOptions {
@@ -31,6 +31,7 @@ export interface ShapeMeshOptions {
   color: number
   name?: string
   roundedBoxParams?: RoundedBoxParams
+  planeFrame?: StrokePlaneFrame | null
 }
 
 function segmentsForBudget(polyBudget: number, cap = 16): number {
@@ -466,9 +467,12 @@ export function vectorShapeToObject(
   )
   if (!mesh || mesh.vertexCount() === 0) return null
 
-  projectMeshToView(mesh, options.view, options.depth)
+  projectMeshToView(mesh, options.view, options.depth, options.planeFrame)
+  const openSurface = kind === 'circle'
   if (isOrthoView(options.view)) {
-    finalizeProjectedShapeMesh(mesh, options.view, kind === 'circle')
+    finalizeProjectedShapeMesh(mesh, options.view, openSurface)
+  } else if (options.planeFrame) {
+    finalizePerspectiveProjectedShapeMesh(mesh, options.planeFrame, openSurface)
   }
 
   const obj = mesh.toObject(generateId(), options.name ?? SHAPE_NAMES[kind], {

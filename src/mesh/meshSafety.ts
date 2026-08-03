@@ -1,5 +1,6 @@
 import { type Vec3 } from '../utils/math'
 import { HalfEdgeMesh } from './HalfEdgeMesh'
+import { unionCoincidentVertices } from './vertexWeldGroups'
 
 function faceArea(a: Vec3, b: Vec3, c: Vec3): number {
   const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z }
@@ -56,36 +57,10 @@ function removeUnreferencedVertices(mesh: HalfEdgeMesh): void {
 
 function weldCoincidentVertices(mesh: HalfEdgeMesh, epsilon = 1e-4): void {
   const n = mesh.positions.length
-  const parent = Array.from({ length: n }, (_, i) => i)
-
-  const find = (i: number): number => {
-    let root = i
-    while (parent[root] !== root) root = parent[root]
-    let curr = i
-    while (parent[curr] !== curr) {
-      const next = parent[curr]
-      parent[curr] = root
-      curr = next
-    }
-    return root
-  }
-
-  const unite = (a: number, b: number): void => {
-    const ra = find(a)
-    const rb = find(b)
-    if (ra !== rb) parent[rb] = ra
-  }
-
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const pi = mesh.positions[i]
-      const pj = mesh.positions[j]
-      if (Math.hypot(pi.x - pj.x, pi.y - pj.y, pi.z - pj.z) < epsilon) unite(i, j)
-    }
-  }
+  const weldRoots = unionCoincidentVertices(mesh.positions, epsilon)
 
   const roots = new Set<number>()
-  for (let i = 0; i < n; i++) roots.add(find(i))
+  for (let i = 0; i < n; i++) roots.add(weldRoots[i]!)
 
   if (roots.size === n) return
 
@@ -96,7 +71,7 @@ function weldCoincidentVertices(mesh: HalfEdgeMesh, epsilon = 1e-4): void {
     newPositions.push({ ...mesh.positions[root] })
   }
 
-  const remap = (vi: number) => oldToNew.get(find(vi))!
+  const remap = (vi: number) => oldToNew.get(weldRoots[vi]!)!
   mesh.positions = newPositions
   mesh.faces = mesh.faces
     .map((f) => {

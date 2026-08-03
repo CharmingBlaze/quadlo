@@ -11,7 +11,7 @@ import { MeshRenderer } from '../MeshRenderer'
 import { MeshEditVisuals } from '../MeshEditVisuals'
 import { ViewportControls, resolvePrimaryNavigation } from '../viewport/ViewportControls'
 import { ViewportRenderContext } from '../ViewportRenderContext'
-import { resolveUvPreviewFaceSelection } from '../../uv/uvPreviewSelection'
+import { resolveUvFaceSelection } from '../../uv/uvPreviewSelection'
 
 function CameraBridge({ cameraRef }: { cameraRef: React.MutableRefObject<THREE.Camera | null> }) {
   const camera = useThree((state) => state.camera)
@@ -53,7 +53,6 @@ function SelectedObjectScene({
           <MeshRenderer
             object={object}
             isSelected
-            isPrimary
             facetExaggeration={0}
             showDensityHeatmap={false}
             displayMode="model"
@@ -137,10 +136,12 @@ export function UvObjectPreview({ object }: { object: SceneObject | null }) {
       if (!event.shiftKey) state.selectUvFaces(object.id, [])
       return
     }
-    const next = resolveUvPreviewFaceSelection(
+    const next = resolveUvFaceSelection(
+      object,
       state.uvEditorSelectedFaces,
       hit.face,
-      event.shiftKey
+      event.shiftKey,
+      state.uvEditorSticky
     )
     state.setUvEditorMode('faces')
     state.selectUvFaces(object.id, next)

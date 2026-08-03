@@ -1,5 +1,5 @@
 import { useMemo, useEffect } from 'react'
-import { Line } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import { useShallow } from 'zustand/react/shallow'
 import * as THREE from 'three'
 import { useAppStore } from '../store/appStore'
@@ -82,7 +82,7 @@ export function PrimitiveBoxCanvas() {
   return (
     <group renderOrder={20}>
       {wireSegments.map(([a, b], i) => (
-        <Line
+        <ViewportLine
           key={`box-edge-${i}`}
           points={[
             [a.x, a.y, a.z],

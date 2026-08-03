@@ -5,6 +5,7 @@ import {
   unregisterViewportInvalidator,
   updateViewportInvalidatorVisibility,
   invalidateViewport,
+  invalidateAllViewports,
 } from '../../rendering/viewportInvalidation'
 import { useAppStore } from '../../store/appStore'
 import { useViewportRuntime } from './ViewportRuntimeContext'
@@ -102,6 +103,40 @@ export function ViewportSceneInvalidator({
     if (!layoutVisible) return
     invalidateViewport(slotIndex, 'cad-preview')
   }, [cadPreviewSignal, slotIndex, layoutVisible])
+
+  return null
+}
+
+/** Live sketch/pen stroke preview — keep every visible viewport in sync while drawing. */
+export function ViewportStrokeInvalidator() {
+  const { layoutVisible } = useViewportRuntime()
+  const isDrawing = useAppStore((s) => s.isDrawing)
+  const currentStrokePreview = useAppStore((s) => s.currentStrokePreview)
+  const currentStrokeView = useAppStore((s) => s.currentStrokeView)
+  const vectorShapePreviewKey = useAppStore((s) => {
+    if (!s.vectorIsDrawing || s.activeTool !== 'vector-shape') return null
+    const b = s.vectorDraft[s.vectorDraft.length - 1]
+    return `${s.vectorDraftView}:${s.vectorDraft.length}:${b?.x ?? ''}:${b?.y ?? ''}`
+  })
+  const penPreviewKey = useAppStore((s) => {
+    const draft = s.vectorPenDraft
+    if (!draft) return null
+    const preview = draft.previewPoint
+    return `${draft.view}:${draft.anchors.length}:${draft.closed ? 1 : 0}:${preview?.x ?? ''}:${preview?.y ?? ''}`
+  })
+
+  useEffect(() => {
+    if (!layoutVisible) return
+    if (!isDrawing && !penPreviewKey && !vectorShapePreviewKey) return
+    invalidateAllViewports('cad-preview')
+  }, [
+    isDrawing,
+    currentStrokePreview,
+    currentStrokeView,
+    penPreviewKey,
+    vectorShapePreviewKey,
+    layoutVisible,
+  ])
 
   return null
 }

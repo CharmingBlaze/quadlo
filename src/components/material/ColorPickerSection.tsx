@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { ColorWheelPicker } from './ColorWheelPicker'
-import { PRESET_PALETTES } from '../../material/palettes'
+import { PRESET_PALETTES, PRESET_PALETTE_CATEGORIES } from '../../material/palettes'
 import type { CustomPalette, HarmonyScheme, Rgba4 } from '../../material/materialTypes'
 import { hexToRgba4, rgba4ToHex } from '../../material/materialTypes'
 
@@ -30,11 +30,18 @@ export function ColorPickerSection({
 }: ColorPickerSectionProps) {
   const paletteOptions = useMemo(
     () => [
-      ...PRESET_PALETTES.map((p) => ({ id: p.id, name: p.name })),
-      ...customPalettes.map((p) => ({ id: p.id, name: p.name })),
+      ...PRESET_PALETTES.map((p) => ({ id: p.id, name: p.name, category: p.category })),
+      ...customPalettes.map((p) => ({ id: p.id, name: p.name, category: 'Custom' as const })),
     ],
     [customPalettes]
   )
+
+  const swatchCountLabel = (id: string, category: string) => {
+    if (category === 'Custom') {
+      return customPalettes.find((c) => c.id === id)?.colors.length ?? 0
+    }
+    return PRESET_PALETTES.find((preset) => preset.id === id)?.colors.length ?? 0
+  }
 
   const swatches = useMemo(() => {
     const preset = PRESET_PALETTES.find((p) => p.id === paletteId)
@@ -43,7 +50,12 @@ export function ColorPickerSection({
     return custom?.colors ?? PRESET_PALETTES[0]!.colors
   }, [paletteId, customPalettes])
 
-  const schemes: HarmonyScheme[] = ['complementary', 'analogous', 'triadic', 'monochromatic']
+  const schemes: { id: HarmonyScheme; label: string }[] = [
+    { id: 'complementary', label: 'Comp' },
+    { id: 'analogous', label: 'Analog' },
+    { id: 'triadic', label: 'Triad' },
+    { id: 'monochromatic', label: 'Mono' },
+  ]
 
   return (
     <div className="mat-color-section">
@@ -55,14 +67,34 @@ export function ColorPickerSection({
           value={paletteId}
           onChange={(e) => onPaletteIdChange(e.target.value)}
         >
-          {paletteOptions.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
+          {PRESET_PALETTE_CATEGORIES.map((category) => (
+            <optgroup key={category} label={category}>
+              {paletteOptions
+                .filter((p) => p.category === category)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({swatchCountLabel(p.id, p.category)})
+                  </option>
+                ))}
+            </optgroup>
           ))}
+          {customPalettes.length > 0 && (
+            <optgroup label="Custom">
+              {paletteOptions
+                .filter((p) => p.category === 'Custom')
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({swatchCountLabel(p.id, p.category)})
+                  </option>
+                ))}
+            </optgroup>
+          )}
         </select>
       </label>
-      <div className="mat-palette-grid">
+      <div
+        className={`mat-palette-grid${swatches.length > 24 ? ' mat-palette-grid-scroll' : ''}`}
+        title={`${swatches.length} swatches`}
+      >
         {swatches.map((hex, i) => (
           <button
             key={`${hex}-${i}`}
@@ -79,8 +111,14 @@ export function ColorPickerSection({
       </div>
       <div className="mat-harmony-row">
         {schemes.map((scheme) => (
-          <button key={scheme} type="button" className="side-btn" onClick={() => onHarmony(scheme)}>
-            {scheme.slice(0, 4)}
+          <button
+            key={scheme.id}
+            type="button"
+            className="side-btn"
+            title={`Generate ${scheme.id} palette`}
+            onClick={() => onHarmony(scheme.id)}
+          >
+            {scheme.label}
           </button>
         ))}
       </div>

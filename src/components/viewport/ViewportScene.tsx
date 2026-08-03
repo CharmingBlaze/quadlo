@@ -5,7 +5,7 @@ import { WebGLContextHandler } from '../WebGLContextHandler'
 import { ViewportPointerPolicy } from '../ViewportPointerPolicy'
 import { ViewportCamera } from './ViewportCamera'
 import { ViewportControls } from './ViewportControls'
-import { ViewportInvalidatorBridge, ViewportSceneInvalidator } from './ViewportInvalidator'
+import { ViewportInvalidatorBridge, ViewportSceneInvalidator, ViewportStrokeInvalidator } from './ViewportInvalidator'
 import { ViewportShadowPlane, ViewportShadowRendererSync } from './ViewportShadowSetup'
 import { ViewportObjects } from './ViewportObjects'
 import { ViewportToolOverlays } from './ViewportToolOverlays'
@@ -96,6 +96,7 @@ export function ViewportScene({
         showDensityHeatmap={showDensityHeatmap}
         cadPreviewSignal={cadPreviewSignal}
       />
+      <ViewportStrokeInvalidator />
       <WebGLContextHandler />
       <ViewportPointerPolicy gizmoActive={canvasPointerEvents} />
       <ViewportShadowRendererSync />

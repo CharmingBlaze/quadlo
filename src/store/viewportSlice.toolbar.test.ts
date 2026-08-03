@@ -82,7 +82,7 @@ describe('syncBottomToolbarCluster', () => {
   it('recenters when auto-center is enabled', () => {
     const synced = syncBottomToolbarCluster(baseState, { force: true })
     expect(synced).not.toBeNull()
-    expect(synced!.transformBarPosition.y).toBeGreaterThan(baseState.transformBarPosition.y)
+    expect(synced!.transformBarPosition!.y).toBeGreaterThan(baseState.transformBarPosition.y)
     expect(synced!.toolbarClusterAutoCenter).toBe(true)
   })
 

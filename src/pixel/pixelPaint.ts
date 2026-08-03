@@ -23,8 +23,11 @@ import { scheduleDocPreview } from './pixelPreview'
 import { strokePointsDirtyRect, type PixelDirtyRect } from './pixelDirtyRect'
 import type { PixelTool } from './pixelTypes'
 
+/** A stroke sample; `pressure` is the 0-1 stylus value, absent for mouse input. */
+export type PaintPoint = { x: number; y: number; pressure?: number }
+
 export type DocumentPaintConfig = {
-  points: readonly { x: number; y: number }[]
+  points: readonly PaintPoint[]
   color: Rgba4
   tool: PixelTool | 'eraser'
   brushSize: number
@@ -32,6 +35,14 @@ export type DocumentPaintConfig = {
   brushHardness: number
   brushOpacity: number
   brushFlow: number
+  /** Dab spacing as a fraction of diameter. */
+  brushSpacing?: number
+  /** Erase by fading alpha through the brush falloff instead of clearing texels. */
+  softEraser?: boolean
+  /** Stylus pressure drives dab diameter. */
+  pressureSize?: boolean
+  /** Stylus pressure drives dab opacity. */
+  pressureOpacity?: boolean
   pixelPerfect: boolean
   symH: boolean
   symV: boolean
@@ -72,6 +83,8 @@ export function applyDocumentPaint(
     brushHardness,
     brushOpacity,
     brushFlow,
+    brushSpacing,
+    softEraser = false,
     pixelPerfect,
     symH,
     symV,
@@ -81,7 +94,12 @@ export function applyDocumentPaint(
   } = config
   if (points.length === 0) return
 
-  if (tool === 'paintBrush') {
+  // The soft eraser reuses the paint-brush pipeline with alpha subtraction, so
+  // it picks up hardness, flow, spacing and pressure for free.
+  const useSoftBrush = tool === 'paintBrush' || (tool === 'eraser' && softEraser)
+
+  if (useSoftBrush) {
+    const erase = tool === 'eraser'
     if (restart) resetSoftBrushStroke()
     const brushColor = rgbaToBytes(color) as [number, number, number, number]
     const params: SoftBrushParams = {
@@ -90,6 +108,9 @@ export function applyDocumentPaint(
       opacity: brushOpacity,
       flow: brushFlow,
       shape: brushShape,
+      spacing: brushSpacing,
+      pressureSize: config.pressureSize,
+      pressureOpacity: config.pressureOpacity,
     }
     paintLiveOnActiveLayer(
       docs,
@@ -97,10 +118,19 @@ export function applyDocumentPaint(
       (pixels, doc) => {
         const stampMirrors =
           symH || symV
-            ? (px: number, py: number) => {
+            ? (px: number, py: number, dabParams: SoftBrushParams) => {
                 for (const c of mirrorPixelCoords(px, py, doc.width, doc.height, symH, symV)) {
                   if (Math.abs(c.x - px) < 1e-6 && Math.abs(c.y - py) < 1e-6) continue
-                  paintSoftBrushDab(pixels, doc.width, doc.height, c.x, c.y, brushColor, params, false)
+                  paintSoftBrushDab(
+                    pixels,
+                    doc.width,
+                    doc.height,
+                    c.x,
+                    c.y,
+                    brushColor,
+                    dabParams,
+                    erase
+                  )
                 }
               }
             : undefined
@@ -115,8 +145,9 @@ export function applyDocumentPaint(
             first.y,
             brushColor,
             params,
-            false,
-            stampMirrors
+            erase,
+            stampMirrors,
+            first.pressure
           )
           for (let i = 1; i < points.length; i++) {
             const p = points[i]!
@@ -128,8 +159,9 @@ export function applyDocumentPaint(
               p.y,
               brushColor,
               params,
-              false,
-              stampMirrors
+              erase,
+              stampMirrors,
+              p.pressure
             )
           }
         } else {
@@ -143,8 +175,9 @@ export function applyDocumentPaint(
               p.y,
               brushColor,
               params,
-              false,
-              stampMirrors
+              erase,
+              stampMirrors,
+              p.pressure
             )
           }
         }

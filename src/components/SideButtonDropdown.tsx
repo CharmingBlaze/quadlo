@@ -10,6 +10,10 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
+const DROPDOWN_MENU_Z = 10050
+/** Theme menu opens upward over the full panel stack (header, tabs, sections). */
+const THEME_DROPDOWN_MENU_Z = 12001
+
 export type SideButtonDropdownOption = {
   value: string
   label: string
@@ -79,6 +83,8 @@ export function SideButtonDropdown({
         left = Math.max(8, window.innerWidth - menuWidth - 8)
       }
 
+      const menuZ = opensUp ? THEME_DROPDOWN_MENU_Z : DROPDOWN_MENU_Z
+
       if (opensUp) {
         const menuHeight = menuRef.current?.offsetHeight ?? options.length * 28 + 8
         setMenuStyle({
@@ -86,16 +92,18 @@ export function SideButtonDropdown({
           left,
           width: menuWidth,
           top: Math.max(8, rect.top - menuHeight - 2),
-          zIndex: 10050,
+          bottom: 'auto',
+          zIndex: menuZ,
           maxHeight: 'min(320px, 50vh)',
         })
       } else {
         setMenuStyle({
           position: 'fixed',
           top: rect.bottom + 2,
+          bottom: 'auto',
           left,
           width: menuWidth,
-          zIndex: 10050,
+          zIndex: menuZ,
         })
       }
     }

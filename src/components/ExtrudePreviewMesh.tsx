@@ -3,15 +3,23 @@ import { useShallow } from 'zustand/react/shallow'
 import * as THREE from 'three'
 import { useAppStore, type ViewType } from '../store/appStore'
 import { buildExtrudePreviewGeometry } from '../preview/extrudePreview'
+import type { StrokePlaneFrame } from '../stroke/worldProjection'
 import type { Vec2 } from '../utils/math'
 
 interface ExtrudePreviewMeshProps {
   points: Vec2[]
   view: ViewType
   closed?: boolean
+  /** Overrides sketch currentStrokePlane (e.g. Vector Pen perspective draft). */
+  planeFrame?: StrokePlaneFrame | null
 }
 
-export function ExtrudePreviewMesh({ points, view, closed }: ExtrudePreviewMeshProps) {
+export function ExtrudePreviewMesh({
+  points,
+  view,
+  closed,
+  planeFrame: planeFrameProp,
+}: ExtrudePreviewMeshProps) {
   const {
     extrudeAmount,
     defaultDepth,
@@ -60,6 +68,8 @@ export function ExtrudePreviewMesh({ points, view, closed }: ExtrudePreviewMeshP
     }))
   )
 
+  const planeFrame = planeFrameProp ?? currentStrokePlane
+
   const geometry = useMemo(() => {
     if (points.length < 2) return null
     return buildExtrudePreviewGeometry(
@@ -71,7 +81,7 @@ export function ExtrudePreviewMesh({ points, view, closed }: ExtrudePreviewMeshP
       closeThreshold,
       closed,
       {
-        strokeMode, polyBudget, hairTipStyle, planeFrame: currentStrokePlane,
+        strokeMode, polyBudget, hairTipStyle, planeFrame,
         pathStartCap, pathEndCap, pathRadialSegments, pathRadiusScale,
         ribbonStartTip, ribbonEndTip, ribbonTaper, ribbonWidthScale, ribbonFlat,
         pathOutput, pathStartScale, pathEndScale, pathTwist, pathSpacing, pathOffset, pathProfile, pathProfileWidth, pathProfileHeight, pathChainAlternating, pathCardCrossed,
@@ -92,7 +102,7 @@ export function ExtrudePreviewMesh({ points, view, closed }: ExtrudePreviewMeshP
     strokeMode,
     polyBudget,
     hairTipStyle,
-    currentStrokePlane,
+    planeFrame,
     pathStartCap, pathEndCap, pathRadialSegments, pathRadiusScale,
     ribbonStartTip, ribbonEndTip, ribbonTaper, ribbonWidthScale, ribbonFlat,
     pathOutput, pathStartScale, pathEndScale, pathTwist, pathSpacing, pathOffset, pathProfile, pathProfileWidth, pathProfileHeight, pathChainAlternating, pathCardCrossed,

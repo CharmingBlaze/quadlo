@@ -8,6 +8,7 @@ const MESH_OP_LABELS = {
   rotate: 'Rotate',
   scale: 'Scale',
   bevel: 'Bevel',
+  inset: 'Inset',
   move: 'Move',
   round: 'Rounded',
 } as const
@@ -60,7 +61,7 @@ export function MeshModalController() {
       if (e.button === 2 && meshModal) {
         e.preventDefault()
         e.stopPropagation()
-        if (meshModal.op === 'bevel' || meshModal.op === 'round') cancelMeshModal()
+        if (meshModal.op === 'bevel' || meshModal.op === 'inset' || meshModal.op === 'round') cancelMeshModal()
         else confirmMeshModal()
         return
       }
@@ -118,7 +119,9 @@ export function MeshModalController() {
             ? 'Move mouse or type factor · X/Y/Z constrain axis · negative mirrors · click/right-click/Enter confirm · Esc cancel'
             : meshModal.op === 'bevel'
               ? 'Move mouse for width · wheel changes segments · type exact width · Ctrl snap · click/Enter confirm · right-click/Esc cancel'
-              : meshModal.op === 'round'
+              : meshModal.op === 'inset'
+                ? 'Move mouse for inset thickness · type exact width · Ctrl snap · click/Enter confirm · right-click/Esc cancel'
+                : meshModal.op === 'round'
                 ? 'Move mouse for strength · type percentage · Ctrl snap · Shift precision · click/Enter confirm · right-click/Esc cancel'
                 : 'Move mouse · scroll to adjust · click/right-click to confirm · Esc cancel'
 

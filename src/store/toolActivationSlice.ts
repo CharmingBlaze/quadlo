@@ -15,6 +15,7 @@ import type { ViewType } from '../scene/viewTypes'
 import {
   applyMeshModalOpWithSymmetry,
   cloneSceneObject,
+  collectRegionFaceSet,
   modalValueFromMouseDelta,
   modalValueFromWheel,
   type MeshModalOpKind,
@@ -483,6 +484,7 @@ export function createToolActivationSlice<T extends ToolActivationLayoutState>(
 
       const obj = objects.find((o) => o.id === meshSelection.objectId)
       if (!obj || obj.topologyLocked) return
+      if (op === 'inset' && collectRegionFaceSet(obj, meshSelection, selectionMode).size === 0) return
 
       store().captureUndoPoint(op === 'round' ? 'Round selection' : 'Mesh edit')
       const pivotWorld = meshSelectionWorldCenter(obj, meshSelection)
@@ -533,7 +535,7 @@ export function createToolActivationSlice<T extends ToolActivationLayoutState>(
       }
 
       if (ctrlKey) {
-        if (modal.op === 'extrude' || modal.op === 'bevel') {
+        if (modal.op === 'extrude' || modal.op === 'bevel' || modal.op === 'inset') {
           value = Math.round(value / 0.25) * 0.25
         } else if (modal.op === 'rotate') {
           const step = 15 * Math.PI / 180

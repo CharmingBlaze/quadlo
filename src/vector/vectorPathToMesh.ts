@@ -1,6 +1,7 @@
 import type { SceneObject } from '../mesh/HalfEdgeMesh'
 import type { ViewType, StrokeMode } from '../store/appStore'
 import { strokeToMesh, type StrokeInput } from '../stroke/strokeToMesh'
+import type { StrokePlaneFrame } from '../stroke/worldProjection'
 import type { HairTipStyle } from '../mesh/hairRibbon'
 import type { SweepCapStyle } from '../mesh/extrusion'
 import type { PathDistributionMode, PathOutput, PathProfile } from '../mesh/pathOutputs'
@@ -24,6 +25,8 @@ export interface VectorPathMeshOptions {
   defaultDepth: number
   color: number
   stylize?: number
+  /** Locked camera-facing plane for perspective pen paths. */
+  planeFrame?: StrokePlaneFrame | null
   extrudeMode?: boolean
   latheMode?: boolean
   latheCaps?: boolean
@@ -139,6 +142,7 @@ export function vectorPathToMesh(
     defaultDepth: options.defaultDepth,
     color: path.color,
     stylize: options.stylize,
+    planeFrame: options.planeFrame ?? null,
     extrudeMode: options.extrudeMode,
     latheMode: options.latheMode,
     latheCaps: options.latheCaps,

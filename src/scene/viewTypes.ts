@@ -33,10 +33,11 @@ export const VIEW_LABELS: Record<OrthoViewType | 'perspective', string> = {
 
 export type ViewportSlotIndex = 0 | 1 | 2 | 3
 
+/** Default quad layout: top-left → top-right → bottom-left → bottom-right. */
 export const DEFAULT_VIEWPORT_SLOT_VIEWS: ViewType[] = [
-  'front',
   'right',
   'top',
+  'front',
   'perspective',
 ]
 

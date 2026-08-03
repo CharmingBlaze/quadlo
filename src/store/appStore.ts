@@ -41,6 +41,7 @@ import {
   resyncAllPixelDocuments,
   sampleColorFromDocument,
   syncPixelDocumentGpu,
+  type PaintPoint,
 } from '../pixel/pixelEditorSlice'
 import {
   clearSelectionOnDocument,
@@ -48,7 +49,10 @@ import {
   cutSelectionOnDocument,
   pasteClipboardOnDocument,
 } from '../pixel/pixelClipboard'
-import { resizePixelDocument as resizePixelDoc } from '../pixel/pixelDocument'
+import { bleedTransparentEdges } from '../pixel/pixelDilate'
+import { getActiveLayer, resizePixelDocument as resizePixelDoc } from '../pixel/pixelDocument'
+import { scheduleDocPreview } from '../pixel/pixelPreview'
+import type { PixelDirtyRect } from '../pixel/pixelDirtyRect'
 import type { PixelBlendMode, PixelSelection, PixelTool } from '../pixel/pixelTypes'
 import type { PixelBrushShape } from '../pixel/pixelBrushTypes'
 import { compositeLayers } from '../pixel/compositeLayers'
@@ -221,6 +225,12 @@ export interface AppState extends ViewportSlice, HistorySlice, SelectionSlice, C
   pixelEditorBrushHardness: number
   pixelEditorBrushOpacity: number
   pixelEditorBrushFlow: number
+  pixelEditorBrushSpacing: number
+  pixelEditorSoftEraser: boolean
+  pixelEditorPressureSize: boolean
+  pixelEditorPressureOpacity: boolean
+  pixelEditorSeamBleed: boolean
+  pixelEditorSeamBleedPasses: number
   pixelEditorPixelPerfect: boolean
   pixelEditorSymmetryH: boolean
   pixelEditorSymmetryV: boolean
@@ -265,6 +275,8 @@ export interface AppState extends ViewportSlice, HistorySlice, SelectionSlice, C
   setMaterialEditorMode: (mode: MaterialMode) => void
   setMaterialOpacity: (opacity: number) => void
   setMaterialDoubleSided: (doubleSided: boolean) => void
+  patchMaterialTextureSettings: (patch: Partial<import('../material/materialTypes').Material>) => void
+  patchMaterialSurfaceSettings: (patch: import('../material/materialTypes').MaterialSurfacePatch) => void
 
   togglePixelEditor: () => void
   openPixelEditor: (opts?: {
@@ -285,6 +297,14 @@ export interface AppState extends ViewportSlice, HistorySlice, SelectionSlice, C
   setPixelEditorBrushHardness: (hardness: number) => void
   setPixelEditorBrushOpacity: (opacity: number) => void
   setPixelEditorBrushFlow: (flow: number) => void
+  setPixelEditorBrushSpacing: (spacing: number) => void
+  setPixelEditorSoftEraser: (on: boolean) => void
+  setPixelEditorPressureSize: (on: boolean) => void
+  setPixelEditorPressureOpacity: (on: boolean) => void
+  setPixelEditorSeamBleed: (on: boolean) => void
+  setPixelEditorSeamBleedPasses: (passes: number) => void
+  /** Pad island edges on the active layer; call once a model-paint stroke ends. */
+  applySeamBleed: (docId: string, rect?: PixelDirtyRect | null) => void
   setPixelEditorPixelPerfect: (on: boolean) => void
   setPixelEditorSymmetryH: (on: boolean) => void
   setPixelEditorSymmetryV: (on: boolean) => void
@@ -323,7 +343,7 @@ export interface AppState extends ViewportSlice, HistorySlice, SelectionSlice, C
   ) => void
   paintDocumentStroke: (
     docId: string,
-    points: { x: number; y: number }[],
+    points: PaintPoint[],
     options?: { tool?: 'pencil' | 'eraser'; round?: boolean; syncGpu?: boolean; restart?: boolean }
   ) => void
   paintPixelStroke: (points: { x: number; y: number }[], tool?: 'pencil' | 'eraser', options?: { round?: boolean }) => void
@@ -548,7 +568,7 @@ function withPixelTextureBump<T extends Record<string, unknown>>(
 function runDocumentPaint(
   state: AppState,
   docId: string,
-  points: { x: number; y: number }[],
+  points: PaintPoint[],
   opts?: {
     tool?: 'pencil' | 'eraser'
     round?: boolean
@@ -568,6 +588,10 @@ function runDocumentPaint(
     brushHardness: state.pixelEditorBrushHardness,
     brushOpacity: state.pixelEditorBrushOpacity,
     brushFlow: state.pixelEditorBrushFlow,
+    brushSpacing: state.pixelEditorBrushSpacing,
+    softEraser: state.pixelEditorSoftEraser,
+    pressureSize: state.pixelEditorPressureSize,
+    pressureOpacity: state.pixelEditorPressureOpacity,
     pixelPerfect: state.pixelEditorPixelPerfect,
     symH: state.pixelEditorSymmetryH,
     symV: state.pixelEditorSymmetryV,
@@ -944,6 +968,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().commitHistory('Double-sided')
   },
 
+  patchMaterialTextureSettings: (patch) => {
+    const ids = resolveTargetObjectIds(get().selectedObjectId, get().selectionObjectIds)
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    let changed = false
+    set((s) => ({
+      objects: s.objects.map((o) => {
+        if (!idSet.has(o.id)) return o
+        const mat = ensureObjectMaterial(o).material!
+        if (mat.mode !== 'texture') return o
+        changed = true
+        return updateObjectMaterialSettings(o, patch)
+      }),
+    }))
+    if (changed) get().commitHistory('Texture material')
+  },
+
+  patchMaterialSurfaceSettings: (patch) => {
+    const ids = resolveTargetObjectIds(get().selectedObjectId, get().selectionObjectIds)
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    set((s) => ({
+      objects: s.objects.map((o) =>
+        idSet.has(o.id) ? updateObjectMaterialSettings(o, patch) : o
+      ),
+    }))
+    get().commitHistory('Surface material')
+  },
+
   togglePixelEditor: () => {
     const { pixelEditorOpen, pixelEditorPanel } = get()
     if (pixelEditorOpen && pixelEditorPanel.minimized) {
@@ -1096,6 +1149,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ pixelEditorBrushOpacity: Math.max(0, Math.min(1, opacity)) }),
   setPixelEditorBrushFlow: (flow) =>
     set({ pixelEditorBrushFlow: Math.max(0, Math.min(1, flow)) }),
+  setPixelEditorBrushSpacing: (spacing) =>
+    set({ pixelEditorBrushSpacing: Math.max(0.02, Math.min(2, spacing)) }),
+  setPixelEditorSoftEraser: (on) => set({ pixelEditorSoftEraser: on }),
+  setPixelEditorPressureSize: (on) => set({ pixelEditorPressureSize: on }),
+  setPixelEditorPressureOpacity: (on) => set({ pixelEditorPressureOpacity: on }),
+  setPixelEditorSeamBleed: (on) => set({ pixelEditorSeamBleed: on }),
+  setPixelEditorSeamBleedPasses: (passes) =>
+    set({ pixelEditorSeamBleedPasses: Math.max(0, Math.min(32, Math.round(passes))) }),
+
+  applySeamBleed: (docId, rect) => {
+    const { pixelDocuments, pixelEditorSeamBleed, pixelEditorSeamBleedPasses } = get()
+    if (!pixelEditorSeamBleed || pixelEditorSeamBleedPasses <= 0) return
+    const doc = pixelDocuments[docId]
+    if (!doc) return
+    const layer = getActiveLayer(doc)
+    if (!layer) return
+
+    const touched = bleedTransparentEdges(
+      layer.pixels,
+      doc.width,
+      doc.height,
+      pixelEditorSeamBleedPasses,
+      rect ?? null
+    )
+    if (!touched) return
+    scheduleDocPreview(pixelDocuments, docId, touched, { gpu: true })
+  },
+
   setPixelEditorPixelPerfect: (on) => set({ pixelEditorPixelPerfect: on }),
   setPixelEditorSymmetryH: (on) => set({ pixelEditorSymmetryH: on }),
   setPixelEditorSymmetryV: (on) => set({ pixelEditorSymmetryV: on }),

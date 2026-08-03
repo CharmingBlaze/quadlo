@@ -53,7 +53,7 @@ export interface MaterialEditorState {
 
 export const materialEditorInitialState: MaterialEditorState = {
   materialEditorOpen: false,
-  materialEditorPanel: { x: 96, y: 96, width: 340, height: 620, minimized: false },
+  materialEditorPanel: { x: 96, y: 96, width: 380, height: 680, minimized: false },
   materialEditorColor: hexToRgba4(DEFAULT_MESH_COLOR_HEX),
   materialEditorPaletteId: 'pico8',
   materialEditorCustomPalettes: [],
@@ -165,6 +165,16 @@ export function syncEditorColorFromSelection(
     (obj.color & 255) / 255,
     mat.opacity,
   ]
+}
+
+/** Pull gradient editor handles from painted corner colors when possible. */
+export function syncGradientStopsFromObject(obj: SceneObject): Rgba4[] | null {
+  const corners = obj.cornerColors
+  if (!corners?.length) return null
+  const first = corners[0]
+  const last = corners[corners.length - 1]
+  if (!first || !last) return null
+  return [first, last]
 }
 
 export function persistCustomPalettes(palettes: CustomPalette[]): void {

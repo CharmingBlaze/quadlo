@@ -25,8 +25,6 @@ import type { ActiveTool, SelectionMode } from '../store/appStore'
 import type { ViewportStickyNav } from '../store/viewportSlice'
 import { pickObjectAt } from '../select/objectPick'
 import { pickMeshComponent } from '../select/meshPick'
-import { selectionHasComponents } from '../mesh/meshSelection'
-
 const MIN_PRIMITIVE_HEIGHT = 0.5
 
 export const DRAW_TOOLS: ActiveTool[] = ['draw', 'boolean-hole']
@@ -49,6 +47,20 @@ export function isViewportLmbToolOwner(tool: ActiveTool): boolean {
     tool === 'round' ||
     tool === 'extrude'
   )
+}
+
+/**
+ * Whether plain LMB belongs to a tool rather than the camera.
+ *
+ * Painting on the model claims LMB regardless of the active modeling tool, so
+ * brush strokes never orbit the view. Turning paint-on-model off hands LMB back
+ * to OrbitControls.
+ */
+export function ownsViewportLeftButton(
+  tool: ActiveTool,
+  pixelPaintOnModel = false
+): boolean {
+  return pixelPaintOnModel || isViewportLmbToolOwner(tool)
 }
 
 /** Screen-space movement below this is a click; above starts orbit/pan or object drag. */
@@ -77,6 +89,69 @@ function isLightWaveNavGadget(target: EventTarget | null): boolean {
   return !!(target as Element).closest('[data-lw-nav]')
 }
 
+/** Select/move tools that free-drag objects with LMB (camera must yield on object hits). */
+export function isObjectFreeDragTool(
+  activeTool: ActiveTool,
+  selectionMode: SelectionMode
+): boolean {
+  if (selectionMode !== 'object') return false
+  return activeTool === 'select-object' || activeTool === 'smart' || activeTool === 'move'
+}
+
+/**
+ * Plain LMB with no modifier, sticky nav or nav gadget involved — the only case
+ * where a viewport drag is ambiguous between "edit" and "move the camera".
+ */
+function isPlainLeftDragCandidate(
+  event: Pick<PointerEvent, 'button' | 'shiftKey' | 'ctrlKey' | 'metaKey'>,
+  target: EventTarget | null,
+  stickyNav: ViewportStickyNav | null
+): boolean {
+  if (event.button !== 0) return false
+  if (event.ctrlKey || event.metaKey) return false
+  if (event.shiftKey) return false
+  if (stickyNav) return false
+  return !isLightWaveNavGadget(target)
+}
+
+/**
+ * True when select/move free-drag may claim LMB — capture should pick the hit
+ * before OrbitControls' bubble handler runs (idle LEFT is already ROTATE/PAN).
+ */
+export function shouldCaptureGateSelectFreeDrag(
+  event: Pick<PointerEvent, 'button' | 'shiftKey' | 'ctrlKey' | 'metaKey'>,
+  target: EventTarget | null,
+  activeTool: ActiveTool,
+  selectionMode: SelectionMode,
+  stickyNav: ViewportStickyNav | null
+): boolean {
+  return (
+    isPlainLeftDragCandidate(event, target, stickyNav) &&
+    isObjectFreeDragTool(activeTool, selectionMode)
+  )
+}
+
+/** True when a plain LMB press in vertex/edge/face mode may start a component edit. */
+export function shouldCaptureGateComponentDrag(
+  event: Pick<PointerEvent, 'button' | 'shiftKey' | 'ctrlKey' | 'metaKey'>,
+  target: EventTarget | null,
+  activeTool: ActiveTool,
+  selectionMode: SelectionMode,
+  stickyNav: ViewportStickyNav | null
+): boolean {
+  return (
+    isPlainLeftDragCandidate(event, target, stickyNav) &&
+    isComponentSelectionMode(selectionMode) &&
+    canDragComponentSelection(activeTool)
+  )
+}
+
+/** A mesh pick that actually landed on a vertex, edge or face. */
+export function meshHitHasComponent(hit: MeshPickHit | null): boolean {
+  if (!hit) return false
+  return hit.vertex !== undefined || hit.edge !== undefined || hit.face !== undefined
+}
+
 /**
  * Capture-phase gate: when LMB hits a draggable object/component under select/move tools,
  * OrbitControls must not arm on the same pointerdown (runs before bubble handlers).
@@ -84,7 +159,7 @@ function isLightWaveNavGadget(target: EventTarget | null): boolean {
 export function shouldCaptureBlockCameraForViewportDrag(
   event: Pick<PointerEvent, 'button' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'clientX' | 'clientY'>,
   target: EventTarget | null,
-  view: ViewType,
+  _view: ViewType,
   activeTool: ActiveTool,
   selectionMode: SelectionMode,
   stickyNav: ViewportStickyNav | null,
@@ -96,21 +171,24 @@ export function shouldCaptureBlockCameraForViewportDrag(
   meshSelection: MeshComponentSelection | null,
   viewportXRay: boolean
 ): boolean {
-  if (event.button !== 0) return false
-  if (event.ctrlKey || event.metaKey) return false
-  if (event.shiftKey) return false
-  if (stickyNav) return false
-  if (isLightWaveNavGadget(target)) return false
-  if (!shouldDeferViewportClickToOrbit(view, activeTool, selectionMode, event.button, false)) {
-    return false
-  }
+  const objectGate = shouldCaptureGateSelectFreeDrag(
+    event,
+    target,
+    activeTool,
+    selectionMode,
+    stickyNav
+  )
+  const componentGate = shouldCaptureGateComponentDrag(
+    event,
+    target,
+    activeTool,
+    selectionMode,
+    stickyNav
+  )
+  if (!objectGate && !componentGate) return false
 
-  const isObjectSelectTool =
-    selectionMode === 'object' &&
-    (activeTool === 'select-object' || activeTool === 'smart')
-  const isObjectMoveTool = selectionMode === 'object' && activeTool === 'move'
-
-  if (isObjectSelectTool || isObjectMoveTool) {
+  if (objectGate) {
+    updateCameraMatrices(camera)
     const pickedObjectId = pickObjectAt(
       event.clientX,
       event.clientY,
@@ -121,8 +199,12 @@ export function shouldCaptureBlockCameraForViewportDrag(
     if (pickedObjectId) return true
   }
 
-  if (isComponentSelectionMode(selectionMode) && canDragComponentSelection(activeTool)) {
+  if (componentGate) {
     updateCameraMatrices(camera)
+    // Any component under the cursor starts an edit on drag — including one that
+    // is not selected yet, which the pointer handler selects then drags. The
+    // camera has to yield on pointerdown or the first pixels of that drag orbit
+    // the view before the edit takes over.
     const hit = pickMeshComponent(
       selectionMode,
       event.clientX,
@@ -133,19 +215,7 @@ export function shouldCaptureBlockCameraForViewportDrag(
       meshSelection?.objectId ?? selectedObjectId,
       { cullBackVertices: !viewportXRay }
     )
-    const hasComponent =
-      hit && (hit.vertex !== undefined || hit.edge !== undefined || hit.face !== undefined)
-    if (!hasComponent || !hit) return false
-
-    const obj = objects.find((o) => o.id === hit.objectId)
-    const sel = meshSelection
-    const hitSelected =
-      obj &&
-      sel &&
-      selectionHasComponents(sel) &&
-      isHitInMeshSelection(hit, sel, selectionMode, obj)
-
-    return !!(hitSelected && obj && sel)
+    return meshHitHasComponent(hit)
   }
 
   return false

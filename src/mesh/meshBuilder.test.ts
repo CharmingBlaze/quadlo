@@ -433,6 +433,31 @@ describe('MeshBuilder', () => {
     expect(axisExtent(obj!, 'z')).toBeGreaterThan(axisExtent(obj!, 'y') - 1)
   })
 
+  it('perspective vector shapes face outward after stroke-frame projection', () => {
+    const frame = {
+      origin: { x: 0, y: 0, z: 0 },
+      right: { x: 1, y: 0, z: 0 },
+      up: { x: 0, y: 1, z: 0 },
+    }
+    for (const kind of ['box', 'sphere', 'cylinder'] as const) {
+      const obj = vectorShapeToObject(
+        kind,
+        { x: -12, y: -12 },
+        { x: 12, y: 12 },
+        {
+          view: 'perspective',
+          depth: 0,
+          polyBudget: 128,
+          color: 0x6ecbf5,
+          planeFrame: frame,
+        }
+      )
+      expect(obj).not.toBeNull()
+      expect(meshSignedVolume(HalfEdgeMesh.fromObject(obj!))).toBeGreaterThan(0)
+      expect(inwardFaceCount(obj!.positions, obj!.faces)).toBe(0)
+    }
+  })
+
   it('vector pen keeps outline corners on a low-poly capsule pillow', () => {
     const diamond = [
       { x: 0, y: 30 },

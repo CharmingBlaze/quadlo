@@ -121,7 +121,7 @@ describe('edge extrude tip vertices remain pickable', () => {
     const box = primitiveBoxToSceneObject(
       'box',
       { min: { x: -1, y: -1, z: -1 }, max: { x: 1, y: 1, z: 1 } },
-      'y',
+      1,
       0xffffff,
       32
     )!

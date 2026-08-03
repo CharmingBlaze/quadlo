@@ -49,6 +49,7 @@ export function cloneSceneObject(obj: SceneObject): SceneObject {
     faces: obj.faces.map((f) => [...f]),
     faceColors: [...obj.faceColors],
     faceGroups: obj.faceGroups?.map((g) => [...g]),
+    seamEdges: obj.seamEdges ? [...obj.seamEdges] : undefined,
     uvs: obj.uvs?.map((u) => ({ ...u })),
     faceUvIndices: obj.faceUvIndices?.map((f) => [...f]),
     cornerColors: obj.cornerColors?.map((c) => [c[0], c[1], c[2], c[3]] as [number, number, number, number]),
@@ -224,6 +225,14 @@ function numberGridEqual(a: number[][] | undefined, b: number[][] | undefined): 
   return true
 }
 
+function stringListEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === b) return true
+  if (!a || !b) return (a?.length ?? 0) === (b?.length ?? 0)
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
 function positionsEqual(
   a: { x: number; y: number; z: number }[],
   b: { x: number; y: number; z: number }[]
@@ -283,6 +292,8 @@ function materialEqual(
     a.textureLumaAlpha !== b.textureLumaAlpha ||
     a.textureBrightness !== b.textureBrightness ||
     a.textureShadowDetail !== b.textureShadowDetail ||
+    a.roughness !== b.roughness ||
+    a.metalness !== b.metalness ||
     !rgbaEqual(a.textureTint, b.textureTint) ||
     !rgbaEqual(a.solidColor, b.solidColor) ||
     !vec2Equal(a.textureRepeat, b.textureRepeat) ||
@@ -346,6 +357,7 @@ export function sceneObjectsContentEqual(a: SceneObject, b: SceneObject): boolea
     if (a.faceColors[i] !== b.faceColors[i]) return false
   }
   if (!numberGridEqual(a.faceGroups, b.faceGroups)) return false
+  if (!stringListEqual(a.seamEdges, b.seamEdges)) return false
   if (!uvsEqual(a.uvs, b.uvs)) return false
   if (!numberGridEqual(a.faceUvIndices, b.faceUvIndices)) return false
   if (!numberGridEqual(a.faceColorIndices, b.faceColorIndices)) return false

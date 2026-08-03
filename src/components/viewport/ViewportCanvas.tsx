@@ -102,15 +102,18 @@ export function ViewportCanvas({
         pointerEvents: canvasPointerEvents ? 'auto' : 'none',
         touchAction: canvasPointerEvents ? 'none' : undefined,
       }}
-      onCreated={({ camera, gl }) => {
+      onCreated={({ camera, gl, invalidate }) => {
         gl.outputColorSpace = 'srgb'
         // Linear output keeps DCC viewport shading crisp; default ACES wash lifts midtones.
         gl.toneMapping = NoToneMapping
         gl.toneMappingExposure = 1
         gl.shadowMap.type = PCFSoftShadowMap
         gl.shadowMap.enabled = true
+        gl.shadowMap.autoUpdate = false
         cameraRef.current = camera
         applyOrthoCamera(view as ViewType, camera)
+        // Demand frameloop: guarantee a first paint after mount / HMR remount.
+        invalidate()
       }}
     >
       <ViewportScene

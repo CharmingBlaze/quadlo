@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { Grid, Line } from '@react-three/drei'
+import { Grid } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import type { ViewType } from '../store/appStore'
 import type { OrthoViewType } from '../primitives/viewAxes'
 import { orthoViewFromLegacy } from '../primitives/viewAxes'
@@ -69,7 +70,7 @@ function OriginMarker() {
         <sphereGeometry args={[0.55, 10, 10]} />
         <meshBasicMaterial color="#e8e8e8" transparent opacity={0.85} depthWrite={false} />
       </mesh>
-      <Line
+      <ViewportLine
         points={[
           [-0.9, 0, 0],
           [0.9, 0, 0],
@@ -79,7 +80,7 @@ function OriginMarker() {
         transparent
         opacity={AXIS_LINE_STYLE.opacity}
       />
-      <Line
+      <ViewportLine
         points={[
           [0, -0.9, 0],
           [0, 0.9, 0],
@@ -89,7 +90,7 @@ function OriginMarker() {
         transparent
         opacity={AXIS_LINE_STYLE.opacity}
       />
-      <Line
+      <ViewportLine
         points={[
           [0, 0, -0.9],
           [0, 0, 0.9],
@@ -114,14 +115,14 @@ function AxisLines({
 }) {
   return (
     <>
-      <Line
+      <ViewportLine
         points={primary}
         color={AXIS_COLORS.x}
         lineWidth={AXIS_LINE_STYLE.lineWidth}
         transparent
         opacity={AXIS_LINE_STYLE.opacity}
       />
-      <Line
+      <ViewportLine
         points={secondary}
         color={AXIS_COLORS.y}
         lineWidth={AXIS_LINE_STYLE.lineWidth}
@@ -129,7 +130,7 @@ function AxisLines({
         opacity={AXIS_LINE_STYLE.opacity}
       />
       {tertiary && (
-        <Line
+        <ViewportLine
           points={tertiary}
           color={AXIS_COLORS.z}
           lineWidth={AXIS_LINE_STYLE.lineWidth}

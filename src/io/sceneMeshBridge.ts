@@ -11,7 +11,7 @@ import type { TextureExportContext } from './materialTextureExport'
 import { EXPORT_UNIT_SCALE } from '../scene/units'
 import { setFlatNormalsFromIndices } from '../rendering/meshGeometry'
 import { bakeMaterialTexturePixels } from './exportTextureBake'
-import { DEFAULT_MESH_COLOR, type Material } from '../material/materialTypes'
+import { DEFAULT_MESH_COLOR, defaultMaterial, resolveMaterialSurface, type Material } from '../material/materialTypes'
 
 export interface ExportMeshBuildOptions {
   textures?: TextureExportContext
@@ -124,6 +124,7 @@ export function sceneObjectToThreeMesh(
   }
 
   let material: THREE.MeshStandardMaterial
+  const { roughness, metalness } = resolveMaterialSurface(effMat)
   if (useTexture && options?.textures) {
     const bakedMap = createDataTextureFromDocument(texId, effMat, options.textures)
     const hasAlpha = bakedMap?.hasAlpha ?? false
@@ -131,8 +132,8 @@ export function sceneObjectToThreeMesh(
       map: bakedMap?.map ?? undefined,
       // Tint / luma / brightness already baked into pixels.
       color: 0xffffff,
-      metalness: 0.05,
-      roughness: 0.55,
+      metalness,
+      roughness,
       flatShading,
       transparent: hasAlpha || effMat.opacity < 0.999,
       opacity: effMat.opacity,
@@ -144,8 +145,8 @@ export function sceneObjectToThreeMesh(
     material = new THREE.MeshStandardMaterial({
       vertexColors: data.faceColors.length > 0,
       color: data.faceColors.length > 0 ? 0xffffff : source.color,
-      metalness: 0.05,
-      roughness: 0.55,
+      metalness,
+      roughness,
       flatShading,
       transparent: effMat.opacity < 0.999,
       opacity: effMat.opacity,
@@ -155,6 +156,12 @@ export function sceneObjectToThreeMesh(
 
   const threeMesh = new THREE.Mesh(geometry, material)
   threeMesh.name = source.name
+  material.userData.blocky3dSurface = {
+    roughness,
+    metalness,
+    opacity: effMat.opacity,
+    doubleSided: effMat.doubleSided,
+  }
   return threeMesh
 }
 
@@ -181,6 +188,45 @@ function colorFromMaterial(material: THREE.Material | THREE.Material[]): number 
   return DEFAULT_MESH_COLOR
 }
 
+function materialFromThreeMaterial(material: THREE.Material | THREE.Material[]): Material {
+  const mat = Array.isArray(material) ? material[0] : material
+  const base = defaultMaterial(colorFromMaterial(material))
+  if (!mat) return base
+
+  const userSurface = mat.userData?.blocky3dSurface as
+    | { roughness?: number; metalness?: number; opacity?: number; doubleSided?: boolean }
+    | undefined
+  if (userSurface) {
+    return {
+      ...base,
+      roughness: userSurface.roughness ?? base.roughness,
+      metalness: userSurface.metalness ?? base.metalness,
+      opacity: userSurface.opacity ?? base.opacity,
+      doubleSided: userSurface.doubleSided ?? base.doubleSided,
+    }
+  }
+
+  if (mat instanceof THREE.MeshStandardMaterial) {
+    return {
+      ...base,
+      roughness: mat.roughness,
+      metalness: mat.metalness,
+      opacity: mat.opacity,
+      doubleSided: mat.side === THREE.DoubleSide,
+    }
+  }
+
+  if ('opacity' in mat && typeof mat.opacity === 'number') {
+    return {
+      ...base,
+      opacity: mat.opacity,
+      doubleSided: 'side' in mat && mat.side === THREE.DoubleSide,
+    }
+  }
+
+  return base
+}
+
 function vertexColorToHex(r: number, g: number, b: number): number {
   return (
     (Math.round(Math.min(1, Math.max(0, r)) * 255) << 16) |
@@ -192,7 +238,8 @@ function vertexColorToHex(r: number, g: number, b: number): number {
 export function geometryToSceneObject(
   name: string,
   geometry: THREE.BufferGeometry,
-  fallbackColor = DEFAULT_MESH_COLOR
+  fallbackColor = DEFAULT_MESH_COLOR,
+  importedMaterial?: Material
 ): SceneObject | null {
   const working = geometry.clone()
   if (!working.getAttribute('position')) return null
@@ -240,6 +287,7 @@ export function geometryToSceneObject(
     smoothShading: false,
     facetExaggeration: 0,
     color: faceColors[0] ?? fallbackColor,
+    material: importedMaterial,
   }
 }
 
@@ -250,7 +298,8 @@ export function meshToSceneObject(mesh: THREE.Mesh): SceneObject | null {
   return geometryToSceneObject(
     mesh.name || 'Imported',
     geometry,
-    colorFromMaterial(mesh.material)
+    colorFromMaterial(mesh.material),
+    materialFromThreeMaterial(mesh.material)
   )
 }
 

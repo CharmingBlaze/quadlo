@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react'
-import { Line } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useShallow } from 'zustand/react/shallow'
@@ -55,6 +55,7 @@ function SketchPointMarker({
 
 export function StrokeCanvas({ view }: StrokeCanvasProps) {
   const { accentGreen } = useTheme()
+  const invalidate = useThree((s) => s.invalidate)
   const {
     currentStroke,
     currentStrokePreview,
@@ -98,19 +99,21 @@ export function StrokeCanvas({ view }: StrokeCanvasProps) {
     [autoConnectPaths, currentStroke, currentStrokePreview, closeThreshold]
   )
 
-  /** Plane points for the live 3D preview (shared across every viewport). */
+  /** Plane points for the live 3D preview in the drawing viewport. */
   const previewPoints = useMemo((): Vec2[] => {
     if (!isDrawing || !currentStrokeView) return []
     if (currentStrokeView === 'perspective' && !currentStrokePlane) return []
     if (currentStroke.length === 0) return []
     const pts = [...currentStroke]
-    if (
-      currentStrokePreview &&
-      (pts.length === 0 ||
-        pts[pts.length - 1]!.x !== currentStrokePreview.x ||
-        pts[pts.length - 1]!.y !== currentStrokePreview.y)
-    ) {
-      pts.push(currentStrokePreview)
+    if (currentStrokePreview) {
+      const last = pts[pts.length - 1]
+      if (
+        !last ||
+        last.x !== currentStrokePreview.x ||
+        last.y !== currentStrokePreview.y
+      ) {
+        pts.push(currentStrokePreview)
+      }
     }
     return smoothDrawing && pts.length >= 3 ? movingAverageSmoothStroke(pts, 2) : pts
   }, [isDrawing, currentStrokeView, currentStrokePlane, currentStroke, currentStrokePreview, smoothDrawing])
@@ -136,19 +139,25 @@ export function StrokeCanvas({ view }: StrokeCanvasProps) {
     (strokeMode === 'capsule' || currentStrokeView !== view) &&
     previewPoints.length >= 2
 
-  const strokePath = useMemo(() => {
-    if (!showPlaneGuides || currentStroke.length === 0) return []
-    return previewPoints.map((p) =>
-      planeToStroke3D(p.x, p.y, view, defaultDepth, currentStrokePlane)
-    )
+  const strokePath = useMemo((): [number, number, number][] => {
+    if (!showPlaneGuides || previewPoints.length === 0) return []
+    const drawView = currentStrokeView ?? view
+    return previewPoints.map((p) => {
+      const w = planeToStroke3D(p.x, p.y, drawView, defaultDepth, currentStrokePlane)
+      return [w.x, w.y, w.z] as [number, number, number]
+    })
   }, [
     showPlaneGuides,
-    currentStroke.length,
     previewPoints,
+    currentStrokeView,
     view,
     defaultDepth,
     currentStrokePlane,
   ])
+
+  useFrame(() => {
+    if (isDrawing && currentStrokeView === view) invalidate()
+  })
 
   if (!isDrawing || previewPoints.length === 0) return null
 
@@ -168,13 +177,33 @@ export function StrokeCanvas({ view }: StrokeCanvasProps) {
 
       {showPlaneGuides && strokePath.length >= 2 && (
         <>
-          <Line points={strokePath} color="#10141a" lineWidth={4} transparent opacity={0.62} depthTest={false} />
-          <Line points={strokePath} color={color} lineWidth={2.15} transparent opacity={0.98} depthTest={false} />
+          <ViewportLine
+            points={strokePath}
+            color="#10141a"
+            lineWidth={4}
+            transparent
+            opacity={0.62}
+            depthTest={false}
+            depthWrite={false}
+            toneMapped={false}
+            renderOrder={24}
+          />
+          <ViewportLine
+            points={strokePath}
+            color={color}
+            lineWidth={2.15}
+            transparent
+            opacity={0.98}
+            depthTest={false}
+            depthWrite={false}
+            toneMapped={false}
+            renderOrder={25}
+          />
         </>
       )}
       {showPlaneGuides && firstPoint && (
         <SketchPointMarker
-          position={[firstPoint.x, firstPoint.y, firstPoint.z]}
+          position={firstPoint}
           color={nearClose ? accentGreen : color}
           outline="#f7fbff"
           sizePx={nearClose ? 13 : 10}
@@ -182,7 +211,7 @@ export function StrokeCanvas({ view }: StrokeCanvasProps) {
       )}
       {showPlaneGuides && currentPoint && strokePath.length > 1 && (
         <SketchPointMarker
-          position={[currentPoint.x, currentPoint.y, currentPoint.z]}
+          position={currentPoint}
           color={currentStrokePreview ? color : '#f7fbff'}
           outline="#11151c"
           sizePx={9}

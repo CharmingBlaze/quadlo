@@ -3,6 +3,8 @@ import type { Uv2 } from './uvTypes'
 export interface UvDraftSnapshot {
   objectId: string
   uvs: readonly Uv2[]
+  /** When face islands are detached mid-gesture, live 3D preview must use this topology. */
+  faceUvIndices?: readonly (readonly number[])[]
 }
 
 type UvDraftListener = (snapshot: UvDraftSnapshot | null) => void
@@ -27,21 +29,29 @@ export function subscribeUvDraft(listener: UvDraftListener): () => void {
 }
 
 /** Publish draft UVs immediately (tests / rare sync paths). */
-export function setUvDraft(objectId: string, uvs: readonly Uv2[]): void {
+export function setUvDraft(
+  objectId: string,
+  uvs: readonly Uv2[],
+  faceUvIndices?: readonly (readonly number[])[]
+): void {
   if (pendingRaf != null) {
     cancelAnimationFrame(pendingRaf)
     pendingRaf = null
     pendingSnapshot = null
   }
-  notify({ objectId, uvs })
+  notify({ objectId, uvs, faceUvIndices })
 }
 
 /**
  * Publish draft UVs at most once per animation frame.
  * Mutate `uvs` in place between calls — listeners always read the latest pool.
  */
-export function scheduleUvDraft(objectId: string, uvs: readonly Uv2[]): void {
-  pendingSnapshot = { objectId, uvs }
+export function scheduleUvDraft(
+  objectId: string,
+  uvs: readonly Uv2[],
+  faceUvIndices?: readonly (readonly number[])[]
+): void {
+  pendingSnapshot = { objectId, uvs, faceUvIndices }
   if (pendingRaf != null) return
   pendingRaf = requestAnimationFrame(() => {
     pendingRaf = null

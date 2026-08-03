@@ -17,10 +17,8 @@ import { ensureObjectUVs, resolveUvMappingMode, detachFacesUvTopology, type Scen
 import { activeObjectTextureId, listSceneTextures } from '../uv/sceneTextures'
 import {
   boundaryEdgesForFacesSpatial,
-  expandFaceToPlanarRegion,
   expandFacesToPlanarRegions,
   getFaceGroupMap,
-  type FaceGroup,
 } from '../mesh/faceGroups'
 import { drawRegionBoundary, drawRegionFill } from '../uv/uvOverlayDraw'
 import {
@@ -67,18 +65,23 @@ import {
   isUvEditorScrollbarTarget,
   clampUvEditorZoom,
   uvEditorFitRect,
-  uvEditorPanCssFromPainted,
-  uvEditorPanFromScrollRatio,
-  uvEditorScrollAxisMetrics,
-  uvEditorScrollDocSpan,
   uvEditorScreenToWorld,
   uvEditorWheelZoom,
 } from '../uv/uvEditorView'
+import {
+  drawChecker,
+  drawNavigatorArrow,
+  isBboxVisibleInViewport,
+  pointInPolygon,
+  resolveUvRegionState,
+} from './uv/uvEditorDraw'
+import { useUvEditorScrollbars } from './uv/useUvEditorScrollbars'
 import { UvEditorToolbar } from './uv/UvEditorToolbar'
 import { UvObjectPreview } from './uv/UvObjectPreview'
+import { buildSeamLookup, seamCornerPairsForFace, type SeamLookup } from '../uv/uvSeams'
 import { polygonIntersectsMarquee } from '../uv/uvMarquee'
 import { connectedUvFaces } from '../uv/uvSelection'
-import { resolveUvPreviewFaceSelection } from '../uv/uvPreviewSelection'
+import { resolveUvFaceSelection } from '../uv/uvPreviewSelection'
 
 const HANDLE_SIZE = 7
 const ROTATE_HANDLE_RADIUS = 7
@@ -89,139 +92,19 @@ const MIN_RESIZE_BOUNDS_SCREEN_SIZE = 32
 const MIN_ZOOM = 0.06
 const MAX_ZOOM = 32
 const DRAG_THRESHOLD_PX = 1
-const AUTO_FIT_MIN_VISIBLE_PX = 8
-
-function isBboxVisibleInViewport(
-  box: { minX: number; minY: number; maxX: number; maxY: number },
-  cw: number,
-  ch: number,
-  panX: number,
-  panY: number,
-  zoom: number,
-  minVisiblePx = AUTO_FIT_MIN_VISIBLE_PX
-): boolean {
-  const sx0 = panX + box.minX * zoom
-  const sy0 = panY + box.minY * zoom
-  const sx1 = panX + box.maxX * zoom
-  const sy1 = panY + box.maxY * zoom
-  const ix0 = Math.max(0, sx0)
-  const iy0 = Math.max(0, sy0)
-  const ix1 = Math.min(cw, sx1)
-  const iy1 = Math.min(ch, sy1)
-  return ix1 - ix0 >= minVisiblePx && iy1 - iy0 >= minVisiblePx
+/** Matches the 3D seam overlay so the same edge reads as one thing in both views. */
+const UV_SEAM_COLOR = '#ff4d2e'
+const EMPTY_SEAM_LOOKUP: SeamLookup = {
+  index: new Set(),
+  spatial: new Set(),
+  isSeam: () => false,
+  size: 0,
 }
 
 type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 type UvDragKind = 'pan' | 'marquee' | 'handle' | 'faceDrag' | 'faceRotate' | 'faceScale'
 
 import { useTheme } from '../theme/useTheme'
-
-let checkerPattern: CanvasPattern | null = null
-let checkerPatternColors = ''
-
-function drawChecker(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  gridA: string,
-  gridB: string
-) {
-  const colorKey = `${gridA}-${gridB}`
-  if (!checkerPattern || checkerPatternColors !== colorKey) {
-    const offscreen = document.createElement('canvas')
-    offscreen.width = 32
-    offscreen.height = 32
-    const octx = offscreen.getContext('2d')
-    if (octx) {
-      octx.fillStyle = gridA
-      octx.fillRect(0, 0, 32, 32)
-      octx.fillStyle = gridB
-      octx.fillRect(0, 0, 16, 16)
-      octx.fillRect(16, 16, 16, 16)
-      checkerPattern = ctx.createPattern(offscreen, 'repeat')
-      checkerPatternColors = colorKey
-    }
-  }
-
-  if (checkerPattern) {
-    ctx.fillStyle = checkerPattern
-    ctx.fillRect(0, 0, w, h)
-  } else {
-    ctx.fillStyle = gridA
-    ctx.fillRect(0, 0, w, h)
-  }
-}
-
-function pointInPolygon(px: number, py: number, poly: { x: number; y: number }[]): boolean {
-  let inside = false
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i].x
-    const yi = poly[i].y
-    const xj = poly[j].x
-    const yj = poly[j].y
-    const intersect = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi + 1e-12) + xi
-    if (intersect) inside = !inside
-  }
-  return inside
-}
-
-function resolveUvRegionState(
-  group: FaceGroup,
-  selectedFaceSet: Set<number>,
-  hoverGroupId: number | null
-): 'idle' | 'hover' | 'selected' {
-  if (group.faceIndices.some((fi) => selectedFaceSet.has(fi))) return 'selected'
-  if (hoverGroupId !== null && hoverGroupId === group.id) return 'hover'
-  return 'idle'
-}
-
-function drawNavigatorArrow(
-  ctx: CanvasRenderingContext2D,
-  cw: number,
-  ch: number,
-  panX: number,
-  panY: number,
-  zoom: number,
-  box: { cx: number; cy: number } | null,
-  fillColor: string,
-  strokeColor: string
-) {
-  if (!box) return
-  const scx = panX + box.cx * zoom
-  const scy = panY + box.cy * zoom
-  if (scx >= 12 && scx <= cw - 12 && scy >= 12 && scy <= ch - 12) return
-
-  const vcx = cw / 2
-  const vcy = ch / 2
-  const dx = scx - vcx
-  const dy = scy - vcy
-  if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return
-
-  let t = Infinity
-  if (dx > 1) t = Math.min(t, (cw - 20 - vcx) / dx)
-  if (dx < -1) t = Math.min(t, (20 - vcx) / dx)
-  if (dy > 1) t = Math.min(t, (ch - 20 - vcy) / dy)
-  if (dy < -1) t = Math.min(t, (20 - vcy) / dy)
-  if (!Number.isFinite(t) || t <= 0) return
-
-  const ex = vcx + dx * t
-  const ey = vcy + dy * t
-  const angle = Math.atan2(scy - ey, scx - ex)
-  const size = 10
-
-  ctx.save()
-  ctx.fillStyle = fillColor
-  ctx.strokeStyle = strokeColor
-  ctx.lineWidth = 1.5
-  ctx.beginPath()
-  ctx.moveTo(ex + Math.cos(angle) * size, ey + Math.sin(angle) * size)
-  ctx.lineTo(ex + Math.cos(angle + 2.4) * size * 0.65, ey + Math.sin(angle + 2.4) * size * 0.65)
-  ctx.lineTo(ex + Math.cos(angle - 2.4) * size * 0.65, ey + Math.sin(angle - 2.4) * size * 0.65)
-  ctx.closePath()
-  ctx.fill()
-  ctx.stroke()
-  ctx.restore()
-}
 
 export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
   const theme = useTheme()
@@ -309,6 +192,7 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
     uvEditorViewAll,
     uvEditorAutoFit,
     uvEditorSticky,
+    uvEditorShowSeams,
     showUvPaintOverlay,
     setUvEditorOpen,
     setUvEditorPanel,
@@ -325,6 +209,9 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
     setUvEditorViewAll,
     setUvEditorAutoFit,
     setUvEditorSticky,
+    setUvEditorShowSeams,
+    applySeamToSelectedEdges,
+    clearAllSeams,
     setShowUvPaintOverlay,
     selectedObjectId,
     meshSelection,
@@ -357,6 +244,7 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
       uvEditorViewAll: s.uvEditorViewAll,
       uvEditorAutoFit: s.uvEditorAutoFit,
       uvEditorSticky: s.uvEditorSticky,
+      uvEditorShowSeams: s.uvEditorShowSeams,
       showUvPaintOverlay: s.pixelEditorShowUvOverlay,
       setUvEditorOpen: s.setUvEditorOpen,
       setUvEditorPanel: s.setUvEditorPanel,
@@ -373,6 +261,9 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
       setUvEditorViewAll: s.setUvEditorViewAll,
       setUvEditorAutoFit: s.setUvEditorAutoFit,
       setUvEditorSticky: s.setUvEditorSticky,
+      setUvEditorShowSeams: s.setUvEditorShowSeams,
+      applySeamToSelectedEdges: s.applySeamToSelectedEdges,
+      clearAllSeams: s.clearAllSeams,
       setShowUvPaintOverlay: s.setPixelEditorShowUvOverlay,
       selectedObjectId: s.selectedObjectId,
       meshSelection: s.meshSelection,
@@ -393,6 +284,9 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
   const obj = useAppStore((s) =>
     objectId ? s.objects.find((o) => o.id === objectId) ?? null : null
   )
+  const selectedEdgeCount =
+    meshSelection?.objectId === objectId ? meshSelection.edges.length : 0
+  const seamLookup = useMemo(() => (obj ? buildSeamLookup(obj) : EMPTY_SEAM_LOOKUP), [obj])
   const pixelDocuments = useAppStore((s) => s.pixelDocuments)
   const objectTextures = useAppStore((s) => s.objectTextures)
   const sceneObjects = useAppStore((s) => s.objects)
@@ -512,20 +406,8 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
 
   /** Sticky: whole coplanar region; off: single face breaks away on move. */
   const resolveFacePick = useCallback(
-    (faceIndex: number, current: number[], additive: boolean): number[] => {
-      if (!obj) return current
-      if (!uvEditorSticky) {
-        return resolveUvPreviewFaceSelection(current, faceIndex, additive)
-      }
-      const region = expandFaceToPlanarRegion(obj, faceIndex)
-      if (!additive) return region
-      const allSelected = region.length > 0 && region.every((fi) => current.includes(fi))
-      if (allSelected) {
-        const remove = new Set(region)
-        return current.filter((fi) => !remove.has(fi))
-      }
-      return [...new Set([...current, ...region])]
-    },
+    (faceIndex: number, current: number[], additive: boolean): number[] =>
+      resolveUvFaceSelection(obj, current, faceIndex, additive, uvEditorSticky),
     [obj, uvEditorSticky]
   )
 
@@ -774,251 +656,41 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
     commitView(uvEditorFitRect({ minX: 0, minY: 0, maxX: texW, maxY: texH }, cw, ch, pad, MIN_ZOOM, MAX_ZOOM))
   }, [texW, texH, commitView])
 
-  // Scrollbars use a fixed padded-atlas document so thumbs stay meaningful when zoomed in.
-  const containerEl = containerRef.current
-  if (containerEl) {
-    const w = containerEl.clientWidth
-    const h = containerEl.clientHeight
-    if (w > 0 && h > 0) viewportSizeRef.current = { w, h }
-  }
-  const cw = viewportSizeRef.current.w || containerEl?.clientWidth || 600
-  const ch = viewportSizeRef.current.h || containerEl?.clientHeight || 600
-
-  const docX0 = -texW * 0.5
-  const docX1 = texW * 1.5
-  const docY0 = -texH * 0.5
-  const docY1 = texH * 1.5
-  const docSpanX = Math.max(docX1 - docX0, 1)
-  const docSpanY = Math.max(docY1 - docY0, 1)
-  const viewW = cw / Math.max(zoom, 1e-6)
-  const viewH = ch / Math.max(zoom, 1e-6)
-  const xMinVisible = -pan.x / Math.max(zoom, 1e-6)
-  const yMinVisible = -pan.y / Math.max(zoom, 1e-6)
-
-  const trackW = Math.max(1, cw - 16)
-  const trackH = Math.max(1, ch - 16)
-  const thumbW = Math.max(24, trackW * Math.min(1, viewW / docSpanX))
-  const thumbHSize = Math.max(24, trackH * Math.min(1, viewH / docSpanY))
-  const scrollRangeX = Math.max(0, docSpanX - viewW)
-  const scrollRangeY = Math.max(0, docSpanY - viewH)
-  const posRatioX =
-    scrollRangeX > 0 ? Math.max(0, Math.min(1, (xMinVisible - docX0) / scrollRangeX)) : 0
-  const posRatioY =
-    scrollRangeY > 0 ? Math.max(0, Math.min(1, (yMinVisible - docY0) / scrollRangeY)) : 0
-  const thumbX = (trackW - thumbW) * posRatioX
-  const thumbY = (trackH - thumbHSize) * posRatioY
-  const showScrollH = scrollRangeX > 1e-3
-  const showScrollV = scrollRangeY > 1e-3
-
-  const getViewPanZoom = useCallback(() => {
-    const live = liveViewRef.current
-    if (live) return live
-    const state = useAppStore.getState()
-    return {
-      panX: state.uvEditorPanX,
-      panY: state.uvEditorPanY,
-      zoom: state.uvEditorZoom,
-    }
+  const cancelCanvasDrag = useCallback(() => {
+    dragRef.current = null
   }, [])
 
-  /** Pan moves the frozen viewport paint; zoom/content changes call redraw. */
-  const applyCamera = useCallback(() => {
-    const layer = viewLayerRef.current
-    if (!layer) return
-    const live = getViewPanZoom()
-    const painted = paintedViewRef.current
-    if (Math.abs(live.zoom - painted.zoom) > 1e-6) {
-      layer.style.transform = ''
-      return
-    }
-    layer.style.transform = uvEditorPanCssFromPainted(painted, live)
-  }, [getViewPanZoom])
-
-  const syncScrollThumbsFromView = useCallback(
-    (view: { panX: number; panY: number; zoom: number }) => {
-      const container = containerRef.current
-      const vw = Math.max(1, viewportSizeRef.current.w || container?.clientWidth || 600)
-      const vh = Math.max(1, viewportSizeRef.current.h || container?.clientHeight || 600)
-      const z = Math.max(view.zoom, 1e-6)
-      const xMin = -view.panX / z
-      const yMin = -view.panY / z
-      const visW = vw / z
-      const visH = vh / z
-      const d0x = -texW * 0.5
-      const d1x = texW * 1.5
-      const d0y = -texH * 0.5
-      const d1y = texH * 1.5
-      const spanXv = Math.max(d1x - d0x, 1)
-      const spanYv = Math.max(d1y - d0y, 1)
-      const trackWv = Math.max(1, vw - 16)
-      const trackHv = Math.max(1, vh - 16)
-      const thumbWv = Math.max(24, trackWv * Math.min(1, visW / spanXv))
-      const thumbHv = Math.max(24, trackHv * Math.min(1, visH / spanYv))
-      const rangeX = Math.max(0, spanXv - visW)
-      const rangeY = Math.max(0, spanYv - visH)
-      const posXv = rangeX > 0 ? Math.max(0, Math.min(1, (xMin - d0x) / rangeX)) : 0
-      const posYv = rangeY > 0 ? Math.max(0, Math.min(1, (yMin - d0y) / rangeY)) : 0
-      if (scrollThumbHRef.current) {
-        scrollThumbHRef.current.style.left = `${(trackWv - thumbWv) * posXv}px`
-        scrollThumbHRef.current.style.width = `${thumbWv}px`
-      }
-      if (scrollThumbVRef.current) {
-        scrollThumbVRef.current.style.top = `${(trackHv - thumbHv) * posYv}px`
-        scrollThumbVRef.current.style.height = `${thumbHv}px`
-      }
-    },
-    [texW, texH]
-  )
-
-  const finishScrollbarPan = useCallback(() => {
-    const live = liveViewRef.current
-    if (!live) return
-    // Do not clear liveView here — clearing before the store updates snaps the camera back.
-    setUvEditorView(live.zoom, live.panX, live.panY)
-    applyCamera()
-  }, [setUvEditorView, applyCamera])
-
-  const handleScrollHThumbDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
-      const container = containerRef.current
-      if (container) {
-        viewportSizeRef.current = { w: container.clientWidth, h: container.clientHeight }
-      }
-      const startClientX = e.clientX
-      const view = getViewPanZoom()
-      const startPanX = view.panX
-      const currentZoom = view.zoom
-      const currentPanY = view.panY
-      const vw = Math.max(1, viewportSizeRef.current.w || 600)
-      const { span } = uvEditorScrollDocSpan(texW)
-      const { panPerPx } = uvEditorScrollAxisMetrics(vw, currentZoom, span)
-      liveViewRef.current = { zoom: currentZoom, panX: startPanX, panY: currentPanY }
-      dragRef.current = null
-
-      const onPointerMove = (moveEvent: PointerEvent) => {
-        const dx = moveEvent.clientX - startClientX
-        liveViewRef.current = {
-          zoom: currentZoom,
-          panX: startPanX - dx * panPerPx,
-          panY: currentPanY,
-        }
-        applyCamera()
-        syncScrollThumbsFromView(liveViewRef.current)
-      }
-
-      const onPointerUp = () => {
-        window.removeEventListener('pointermove', onPointerMove)
-        window.removeEventListener('pointerup', onPointerUp)
-        window.removeEventListener('pointercancel', onPointerUp)
-        finishScrollbarPan()
-      }
-
-      window.addEventListener('pointermove', onPointerMove)
-      window.addEventListener('pointerup', onPointerUp)
-      window.addEventListener('pointercancel', onPointerUp)
-    },
-    [getViewPanZoom, texW, applyCamera, syncScrollThumbsFromView, finishScrollbarPan]
-  )
-
-  const handleScrollVThumbDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
-      const container = containerRef.current
-      if (container) {
-        viewportSizeRef.current = { w: container.clientWidth, h: container.clientHeight }
-      }
-      const startClientY = e.clientY
-      const view = getViewPanZoom()
-      const startPanY = view.panY
-      const currentZoom = view.zoom
-      const currentPanX = view.panX
-      const vh = Math.max(1, viewportSizeRef.current.h || 600)
-      const { span } = uvEditorScrollDocSpan(texH)
-      const { panPerPx } = uvEditorScrollAxisMetrics(vh, currentZoom, span)
-      liveViewRef.current = { zoom: currentZoom, panX: currentPanX, panY: startPanY }
-      dragRef.current = null
-
-      const onPointerMove = (moveEvent: PointerEvent) => {
-        const dy = moveEvent.clientY - startClientY
-        liveViewRef.current = {
-          zoom: currentZoom,
-          panX: currentPanX,
-          panY: startPanY - dy * panPerPx,
-        }
-        applyCamera()
-        syncScrollThumbsFromView(liveViewRef.current)
-      }
-
-      const onPointerUp = () => {
-        window.removeEventListener('pointermove', onPointerMove)
-        window.removeEventListener('pointerup', onPointerUp)
-        window.removeEventListener('pointercancel', onPointerUp)
-        finishScrollbarPan()
-      }
-
-      window.addEventListener('pointermove', onPointerMove)
-      window.addEventListener('pointerup', onPointerUp)
-      window.addEventListener('pointercancel', onPointerUp)
-    },
-    [getViewPanZoom, texH, applyCamera, syncScrollThumbsFromView, finishScrollbarPan]
-  )
-
-  const handleScrollHTrackDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (e.target !== e.currentTarget || e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-      const clickX = e.clientX - rect.left
-      const view = getViewPanZoom()
-      const vw = Math.max(1, viewportSizeRef.current.w || cw)
-      const { doc0, span } = uvEditorScrollDocSpan(texW)
-      const { track, thumb, range } = uvEditorScrollAxisMetrics(vw, view.zoom, span)
-      if (range <= 0) return
-      const ratio = Math.max(0, Math.min(1, (clickX - thumb / 2) / Math.max(1, track - thumb)))
-      liveViewRef.current = {
-        zoom: view.zoom,
-        panX: uvEditorPanFromScrollRatio(doc0, range, ratio, view.zoom),
-        panY: view.panY,
-      }
-      dragRef.current = null
-      applyCamera()
-      syncScrollThumbsFromView(liveViewRef.current)
-      finishScrollbarPan()
-    },
-    [getViewPanZoom, cw, texW, applyCamera, syncScrollThumbsFromView, finishScrollbarPan]
-  )
-
-  const handleScrollVTrackDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (e.target !== e.currentTarget || e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-      const clickY = e.clientY - rect.top
-      const view = getViewPanZoom()
-      const vh = Math.max(1, viewportSizeRef.current.h || ch)
-      const { doc0, span } = uvEditorScrollDocSpan(texH)
-      const { track, thumb, range } = uvEditorScrollAxisMetrics(vh, view.zoom, span)
-      if (range <= 0) return
-      const ratio = Math.max(0, Math.min(1, (clickY - thumb / 2) / Math.max(1, track - thumb)))
-      liveViewRef.current = {
-        zoom: view.zoom,
-        panX: view.panX,
-        panY: uvEditorPanFromScrollRatio(doc0, range, ratio, view.zoom),
-      }
-      dragRef.current = null
-      applyCamera()
-      syncScrollThumbsFromView(liveViewRef.current)
-      finishScrollbarPan()
-    },
-    [getViewPanZoom, ch, texH, applyCamera, syncScrollThumbsFromView, finishScrollbarPan]
-  )
+  const {
+    trackW,
+    trackH,
+    thumbW,
+    thumbHSize,
+    thumbX,
+    thumbY,
+    showScrollH,
+    showScrollV,
+    getViewPanZoom,
+    applyCamera,
+    syncScrollThumbsFromView,
+    handleScrollHThumbDown,
+    handleScrollVThumbDown,
+    handleScrollHTrackDown,
+    handleScrollVTrackDown,
+  } = useUvEditorScrollbars({
+    containerRef,
+    viewLayerRef,
+    viewportSizeRef,
+    liveViewRef,
+    paintedViewRef,
+    scrollThumbHRef,
+    scrollThumbVRef,
+    texW,
+    texH,
+    pan,
+    zoom,
+    setUvEditorView,
+    cancelDrag: cancelCanvasDrag,
+  })
 
   const screenToUvPixel = useCallback(
     (clientX: number, clientY: number) => {
@@ -1380,6 +1052,28 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
       ctx.stroke()
     }
 
+    // Seams last among the wireframe passes so they read above island outlines.
+    if (uvEditorShowSeams && seamLookup.size > 0) {
+      ctx.beginPath()
+      for (const fi of visibleFaceIndices) {
+        const pairs = seamCornerPairsForFace(mesh, fi, seamLookup)
+        if (pairs.length === 0) continue
+        const pts = getFacePixels(fi)
+        for (const [i, j] of pairs) {
+          const a = pts[i]
+          const b = pts[j]
+          if (!a || !b) continue
+          ctx.moveTo(a.x, a.y)
+          ctx.lineTo(b.x, b.y)
+        }
+      }
+      ctx.strokeStyle = UV_SEAM_COLOR
+      ctx.lineWidth = lw(2.5)
+      ctx.lineCap = 'round'
+      ctx.stroke()
+      ctx.lineCap = 'butt'
+    }
+
     if (uvEditorMode === 'points') {
       const handleSet = new Set<number>()
       for (const fi of visibleFaceIndices) {
@@ -1473,6 +1167,8 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
     getSelectionPivotUv,
     getUvs,
     theme,
+    uvEditorShowSeams,
+    seamLookup,
   ])
 
   const scheduleRedraw = useCallback(() => {
@@ -1728,22 +1424,30 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
     ctx.restore()
   }, [getViewPanZoom, theme])
 
+  const getDraftFaceUvIndices = useCallback(() => {
+    const pending = pendingTopologyRef.current
+    return pending?.objectId === objectId ? pending.faceUvIndices : undefined
+  }, [objectId])
+
   const beginLive3dFacePreview = useCallback(
     (indicesOverride?: number[]) => {
-      // Live 3D uses the *store* UV topology (MeshRenderer), not the detached editor copy.
       if (!objectId) return
-      const liveObj = useAppStore.getState().objects.find((o) => o.id === objectId)
-      if (!liveObj) return
-      const base = ensureObjectUVs(liveObj)
+      const mesh =
+        ensuredRef.current ??
+        (() => {
+          const liveObj = useAppStore.getState().objects.find((o) => o.id === objectId)
+          return liveObj ? ensureObjectUVs(liveObj) : null
+        })()
+      if (!mesh) return
       const faces = regionFacesForEditRef.current
       const indices =
         indicesOverride ??
-        (faces.length > 0 ? collectFaceUvIndices(faces, base) : [])
+        (faces.length > 0 ? collectFaceUvIndices(faces, mesh) : [])
       if (indices.length === 0) return
       faceDrag3dRef.current = {
         indices,
-        starts: indices.map((i) => ({ ...base.uvs[i]! })),
-        pool: base.uvs.map((uv) => ({ ...uv })),
+        starts: indices.map((i) => ({ ...mesh.uvs[i]! })),
+        pool: mesh.uvs.map((uv) => ({ ...uv })),
       }
     },
     [objectId, collectFaceUvIndices]
@@ -1875,9 +1579,9 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
       draftUvsRef.current = next
       if (redrawCanvas) scheduleRedraw()
       // Live 3D: patch GPU UV buffers once per frame — never write the app store mid-drag.
-      if (objectId) scheduleUvDraft(objectId, next)
+      if (objectId) scheduleUvDraft(objectId, next, getDraftFaceUvIndices())
     },
-    [ensured, scheduleRedraw, objectId]
+    [ensured, scheduleRedraw, objectId, getDraftFaceUvIndices]
   )
 
   const flushDraftUvs = useCallback(() => {
@@ -2317,7 +2021,6 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
       const pivot = hasFaceSel
         ? getSelectionPivotUv(regionFacesForEdit)
         : uvBoundsCenter(uvBoundsFromIndices(getUvs(), uvEditorSelectedPoints))
-      if (hasFaceSel) prepareFaceTransformMesh(regionFacesForEdit)
       transformSelectedUvIslands({
         translate: [clickUv.u - pivot.u, clickUv.v - pivot.v],
       })
@@ -2333,7 +2036,6 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
       regionFacesForEdit,
       getUvs,
       getSelectionPivotUv,
-      prepareFaceTransformMesh,
       transformSelectedUvIslands,
     ]
   )
@@ -2556,7 +2258,7 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
     if (!objectId || !live3d) return
     const { du, dv } = faceDragScreenToUvDelta(preview, clientX, clientY)
     applyUvLive3dDelta(live3d, du, dv)
-    scheduleUvDraft(objectId, live3d.pool)
+    scheduleUvDraft(objectId, live3d.pool, getDraftFaceUvIndices())
   }
 
   const applyFaceRotateAtPointer = (
@@ -2582,7 +2284,7 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
         v: preview.pivotV,
       })
       writeUvLive3dPool(live3d, rotated)
-      scheduleUvDraft(objectId, live3d.pool)
+      scheduleUvDraft(objectId, live3d.pool, getDraftFaceUvIndices())
     }
     lastIslandRotRef.current = Math.round((angle * 180) / Math.PI)
     return angle
@@ -2619,7 +2321,7 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
     if (objectId && live3d) {
       const scaled = scaleUvSnapshot(live3d.starts, scaleU, scaleV, drag.pivotUv)
       writeUvLive3dPool(live3d, scaled)
-      scheduleUvDraft(objectId, live3d.pool)
+      scheduleUvDraft(objectId, live3d.pool, getDraftFaceUvIndices())
     }
     return { scaleU, scaleV }
   }
@@ -2814,15 +2516,10 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
 
     if (commitFaceDragPreview && d.uvIndices && d.startUvs) {
       let { du, dv } = faceDragScreenToUvDelta(preview, e.clientX, e.clientY)
-      const enabled = e.ctrlKey ? !uvEditorSnap : uvEditorSnap
-      const mode: UvSnapMode = enabled ? uvEditorSnapMode : 'off'
-      const snapCtx = snapCtxRef.current
-      if (snapCtx && mode === 'grid') {
-        const stepU = 1 / snapCtx.gridDivisions
-        const stepV = 1 / snapCtx.gridDivisions
-        du = Math.round(du / stepU) * stepU
-        dv = Math.round(dv / stepV) * stepV
-      }
+      const anchor = d.startUvs[0]!
+      const snapped = applySnap(anchor.u + du, anchor.v + dv, e.ctrlKey, 'island')
+      du = snapped.u - anchor.u
+      dv = snapped.v - anchor.v
       const updates = d.uvIndices.map((ui, idx) => {
         const base = d.startUvs![idx]
         return { uvIndex: ui, u: base.u + du, v: base.v + dv }
@@ -3021,6 +2718,11 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
           resetDraftPreview()
           unwrapSelectedUvFaces(unwrapMethod)
         }
+        // Blender-compatible: Ctrl+E marks seams, Ctrl+Shift+E clears them.
+        if (e.code === 'KeyE' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.repeat) {
+          e.preventDefault()
+          applySeamToSelectedEdges(e.shiftKey ? 'clear' : 'mark')
+        }
         if (e.code === 'KeyA' && !e.altKey && !e.shiftKey) {
           e.preventDefault()
           if (e.ctrlKey || e.metaKey) {
@@ -3086,6 +2788,7 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
     resetDraftPreview,
     getUvs,
     setUvEditorSelectedPoints,
+    applySeamToSelectedEdges,
   ])
 
   const runUnwrap = useCallback(
@@ -3365,6 +3068,12 @@ export function UVEditorPanel({ workspace = false }: { workspace?: boolean }) {
           onSetTextureTransform={setTextureTransform}
           onSelectConnected={selectConnectedIsland}
           canSelectConnected={uvEditorMode === 'faces' && uvEditorSelectedFaces.length > 0}
+          uvEditorShowSeams={uvEditorShowSeams}
+          onSetShowSeams={setUvEditorShowSeams}
+          onApplySeam={applySeamToSelectedEdges}
+          onClearAllSeams={() => clearAllSeams(objectId ?? undefined)}
+          selectedEdgeCount={selectedEdgeCount}
+          seamCount={obj?.seamEdges?.length ?? 0}
           imageLayerEdit={imageLayerEdit}
           autoResizeUvsWithImage={autoResizeUvsWithImage}
           onSetImageLayerEdit={setImageLayerEdit}

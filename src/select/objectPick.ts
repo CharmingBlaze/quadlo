@@ -10,6 +10,42 @@ const raycaster = new THREE.Raycaster()
 const ndc = new THREE.Vector2()
 const _projected = new THREE.Vector3()
 
+/** Meshes below this opacity are skipped when a more-opaque hit exists behind them. */
+export const PICK_OPAQUE_OPACITY_THRESHOLD = 0.92
+
+export function resolveHitPickOpacity(object: THREE.Object3D): number {
+  let node: THREE.Object3D | null = object
+  while (node) {
+    const value = node.userData.pickOpacity
+    if (typeof value === 'number') return Math.max(0, Math.min(1, value))
+    node = node.parent
+  }
+  return 1
+}
+
+export function sceneObjectIdFromObject3D(object: THREE.Object3D): string | null {
+  let node: THREE.Object3D | null = object
+  while (node) {
+    const id = node.userData.sceneObjectId as string | undefined
+    if (id) return id
+    node = node.parent
+  }
+  return null
+}
+
+/** Prefer solid surfaces so glass/water do not block selecting objects behind them. */
+export function pickObjectIdFromHits(hits: THREE.Intersection[]): string | null {
+  let fallback: string | null = null
+  for (const hit of hits) {
+    const id = sceneObjectIdFromObject3D(hit.object)
+    if (!id) continue
+    const opacity = resolveHitPickOpacity(hit.object)
+    if (opacity >= PICK_OPAQUE_OPACITY_THRESHOLD) return id
+    if (!fallback) fallback = id
+  }
+  return fallback
+}
+
 export function pickObjectAt(
   clientX: number,
   clientY: number,
@@ -31,14 +67,7 @@ export function pickObjectAt(
   const hits = raycaster.intersectObjects(targets, true)
   if (hits.length === 0) return null
 
-  let node: THREE.Object3D | null = hits[0].object
-  while (node) {
-    const id = node.userData.sceneObjectId as string | undefined
-    if (id) return id
-    node = node.parent
-  }
-
-  return null
+  return pickObjectIdFromHits(hits)
 }
 
 /**

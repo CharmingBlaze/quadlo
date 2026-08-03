@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react'
-import { Line } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useShallow } from 'zustand/react/shallow'
@@ -190,7 +190,7 @@ export function LoopCutVisuals() {
     <group renderOrder={26}>
       {preview.allSegments.map((segments, cutIdx) =>
         segments.map(({ a, b }, i) => (
-          <Line
+          <ViewportLine
             key={`cut-${cutIdx}-segment-${i}`}
             points={[
               [a.x, a.y, a.z],
@@ -229,7 +229,7 @@ export function LoopCutVisuals() {
       {preview.showMirror &&
         preview.mirroredSegments.map((segments, cutIdx) =>
           segments.map(({ a, b }, i) => (
-            <Line
+            <ViewportLine
               key={`mirror-cut-${cutIdx}-segment-${i}`}
               points={[
                 [a.x, a.y, a.z],

@@ -1,6 +1,6 @@
 import type { OrthoViewType } from '../primitives/viewAxes'
 import { HalfEdgeMesh } from './HalfEdgeMesh'
-import { viewTowardCamera } from '../stroke/worldProjection'
+import { viewTowardCamera, type StrokePlaneFrame, strokePlaneNormal } from '../stroke/worldProjection'
 import { latheRevolutionAxis } from '../stroke/latheProfile'
 import type { ViewType } from '../scene/viewTypes'
 import { faceNormal, type Vec3 } from '../utils/math'
@@ -175,6 +175,13 @@ export function orientOpenMeshTowardView(
   if (mesh.faces.length === 0) return mesh
 
   const toward = viewTowardCamera(view)
+  return orientOpenMeshTowardDirection(mesh, toward)
+}
+
+/** Flip open single-sided meshes so the visible side faces `toward` (e.g. stroke-plane normal). */
+export function orientOpenMeshTowardDirection(mesh: HalfEdgeMesh, toward: Vec3): HalfEdgeMesh {
+  if (mesh.faces.length === 0) return mesh
+
   const face = mesh.faces[0]!
   if (face.length < 3) return mesh
 
@@ -195,6 +202,22 @@ export function finalizeProjectedShapeMesh(
 ): HalfEdgeMesh {
   if (openSurface) {
     return orientOpenMeshTowardView(mesh, view)
+  }
+  if (countNakedEdges(mesh) === 0) {
+    return ensureClosedMeshOutward(mesh)
+  }
+  mesh.buildHalfEdges()
+  return mesh
+}
+
+/** Same as finalizeProjectedShapeMesh for meshes placed on a locked perspective stroke frame. */
+export function finalizePerspectiveProjectedShapeMesh(
+  mesh: HalfEdgeMesh,
+  frame: StrokePlaneFrame,
+  openSurface = false
+): HalfEdgeMesh {
+  if (openSurface) {
+    return orientOpenMeshTowardDirection(mesh, strokePlaneNormal(frame))
   }
   if (countNakedEdges(mesh) === 0) {
     return ensureClosedMeshOutward(mesh)

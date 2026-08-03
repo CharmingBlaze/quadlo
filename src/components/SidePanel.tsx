@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   useAppStore,
@@ -9,6 +19,7 @@ import {
   type PolyDrawMode,
 } from '../store/appStore'
 import { selectionHasComponents } from '../mesh/meshSelection'
+import { collectRegionFaceSet } from '../mesh/meshOps'
 import {
   VIEWPORT_DISPLAY_CONFIG,
   VIEWPORT_DISPLAY_MODES,
@@ -35,6 +46,13 @@ import { listSceneTextures } from '../uv/sceneTextures'
 import { pickOpenFile } from '../io/fileDialogs'
 import { IMAGE_IMPORT_FILTERS } from '../io/download'
 import { SideSubTabs } from './SideSubTabs'
+import { SectionIcon } from './sidePanel/SectionIcon'
+import {
+  SIDE_PANEL_SECTIONS,
+  sidePanelSection,
+} from './sidePanel/sidePanelCatalog'
+import { useSidePanelPrefs, type SidePanelPrefsApi } from './sidePanel/useSidePanelPrefs'
+import { PANEL_DENSITIES } from './sidePanel/sidePanelPrefs'
 
 const MODEL_IMPORT_FILTERS = [
   { name: '3D models', extensions: ['obj', 'glb', 'gltf', 'stl'] },
@@ -129,41 +147,116 @@ function SideBtnGroup({
   return <div className={`side-btn-group cols-${cols}`}>{children}</div>
 }
 
+function HistoryArrowIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden focusable="false">
+      <path
+        d="M6 4.5 2.5 8 6 11.5M2.5 8h6.2a4.3 4.3 0 0 1 0 8.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function FoldAllIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden focusable="false">
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {expanded ? (
+          <>
+            <path d="m4.5 6.5 3.5-3 3.5 3" />
+            <path d="m4.5 12.5 3.5-3 3.5 3" />
+          </>
+        ) : (
+          <>
+            <path d="m4.5 3.5 3.5 3 3.5-3" />
+            <path d="m4.5 9.5 3.5 3 3.5-3" />
+          </>
+        )}
+      </g>
+    </svg>
+  )
+}
+
+interface SidePanelChromeContext {
+  prefs: SidePanelPrefsApi
+}
+
+const SidePanelChrome = createContext<SidePanelChromeContext | null>(null)
+
 function SideSection({
+  id,
   title,
   children,
   columns = 1,
   order = 0,
   collapsible = true,
-  defaultCollapsed = false,
 }: {
+  /** Catalog id — keys the persisted collapse state and icon. */
+  id: string
   title: string
   children: ReactNode
   columns?: 1 | 2
   /** Visual workflow order without coupling the panel's source layout to its presentation. */
   order?: number
   collapsible?: boolean
-  defaultCollapsed?: boolean
 }) {
-  const [collapsed, setCollapsed] = useState(defaultCollapsed)
+  const chrome = useContext(SidePanelChrome)
+  const meta = sidePanelSection(id)
   const contentId = useId()
+  const collapsed = collapsible ? (chrome?.prefs.isCollapsed(id) ?? false) : false
+
+  const header = (
+    <>
+      {meta && <SectionIcon icon={meta.icon} />}
+      <span className="side-section-label">{title}</span>
+    </>
+  )
+
   return (
-    <section className="side-section" style={{ order }}>
+    <section
+      id={`side-section-${id}`}
+      className="side-section"
+      style={{ order }}
+    >
       {collapsible ? (
         <button
           type="button"
           className="side-section-title side-section-toggle"
-          onClick={() => setCollapsed((value) => !value)}
+          title={meta?.blurb}
+          onClick={() => chrome?.prefs.toggleSection(id)}
           aria-expanded={!collapsed}
           aria-controls={contentId}
         >
-          <span>{title}</span>
-          <span className="side-section-chevron" aria-hidden>
-            {collapsed ? '▸' : '▾'}
-          </span>
+          {header}
+          <svg
+            className="side-section-chevron"
+            viewBox="0 0 16 16"
+            aria-hidden
+            focusable="false"
+          >
+            <path
+              d="m4.5 6.5 3.5 3.5 3.5-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </button>
       ) : (
-        <h2 className="side-section-title">{title}</h2>
+        <h2 className="side-section-title">{header}</h2>
       )}
       <div
         id={contentId}
@@ -379,6 +472,8 @@ export function SidePanel() {
     setViewportXRay,
     requestViewportFit,
     resetViewportQuadLayout,
+    viewportLwToolsLayout,
+    setViewportLwToolsLayout,
     setSelectionSmoothShading,
     toggleTopologyLock,
     simplifySelected,
@@ -405,6 +500,9 @@ export function SidePanel() {
     meshSelection,
     objects,
     activeView,
+    hoveredViewportSlot,
+    viewportSlotViews,
+    beginMeshModal,
     viewMoveBasis,
     sidePanelWidth,
     setSidePanelWidth,
@@ -586,6 +684,8 @@ export function SidePanel() {
       setViewportXRay: s.setViewportXRay,
       requestViewportFit: s.requestViewportFit,
       resetViewportQuadLayout: s.resetViewportQuadLayout,
+      viewportLwToolsLayout: s.viewportLwToolsLayout,
+      setViewportLwToolsLayout: s.setViewportLwToolsLayout,
       setSelectionSmoothShading: s.setSelectionSmoothShading,
       toggleTopologyLock: s.toggleTopologyLock,
       simplifySelected: s.simplifySelected,
@@ -612,6 +712,9 @@ export function SidePanel() {
       meshSelection: s.meshSelection,
       objects: s.objects,
       activeView: s.activeView,
+      hoveredViewportSlot: s.hoveredViewportSlot,
+      viewportSlotViews: s.viewportSlotViews,
+      beginMeshModal: s.beginMeshModal,
       viewMoveBasis: s.viewMoveBasis,
       sidePanelWidth: s.sidePanelWidth,
       setSidePanelWidth: s.setSidePanelWidth,
@@ -696,6 +799,18 @@ export function SidePanel() {
   const [objectArraySourceError, setObjectArraySourceError] = useState<string | null>(null)
   const [panelTab, setPanelTab] = useState<SidePanelTab>('create')
   const [editSubTab, setEditSubTab] = useState<EditSubTab>('select-transform')
+  const prefs = useSidePanelPrefs()
+
+  const chromeContext = useMemo(() => ({ prefs }), [prefs])
+
+  const visibleSectionIds = useMemo(
+    () =>
+      SIDE_PANEL_SECTIONS.filter(
+        (s) => s.tab === panelTab && (!s.subTab || s.subTab === editSubTab)
+      ).map((s) => s.id),
+    [panelTab, editSubTab]
+  )
+  const allVisibleCollapsed = visibleSectionIds.every((id) => prefs.isCollapsed(id))
 
   const hairTextureLabel = useMemo(() => {
     if (!hairTextureId) return null
@@ -943,6 +1058,39 @@ export function SidePanel() {
     return !!obj && obj.positions.length > 0
   })
 
+  const canInsetFaces = useMemo(() => {
+    if (!selectionHasComponents(meshSelection)) return false
+    const obj = objects.find((o) => o.id === meshSelection!.objectId)
+    if (!obj || obj.topologyLocked) return false
+    return collectRegionFaceSet(obj, meshSelection!, selectionMode).size > 0
+  }, [meshSelection, objects, selectionMode])
+
+  const canExtrudeFaces = useMemo(() => {
+    if (!selectionHasComponents(meshSelection)) return false
+    const obj = objects.find((o) => o.id === meshSelection!.objectId)
+    return !!obj && !obj.topologyLocked
+  }, [meshSelection, objects])
+
+  const handleBeginInset = useCallback(() => {
+    const slot = hoveredViewportSlot ?? 0
+    const view = viewportSlotViews[slot] ?? activeView
+    if (selectionMode !== 'face') setSelectionMode('face')
+    beginMeshModal('inset', window.innerWidth * 0.5, window.innerHeight * 0.5, view)
+  }, [
+    activeView,
+    beginMeshModal,
+    hoveredViewportSlot,
+    selectionMode,
+    setSelectionMode,
+    viewportSlotViews,
+  ])
+
+  const handleBeginExtrude = useCallback(() => {
+    const slot = hoveredViewportSlot ?? 0
+    const view = viewportSlotViews[slot] ?? activeView
+    beginMeshModal('extrude', window.innerWidth * 0.5, window.innerHeight * 0.5, view)
+  }, [activeView, beginMeshModal, hoveredViewportSlot, viewportSlotViews])
+
   const handleFitViews = useCallback(() => {
     const ids = resolveTargetObjectIds(selectedObjectId, selectionObjectIds)
     const frame = computeSelectionFitFrame(objects, ids)
@@ -1006,9 +1154,14 @@ export function SidePanel() {
   if (!showSidePanel) return null
 
   return (
-    <>
+    <SidePanelChrome.Provider value={chromeContext}>
       <PanelResizeHandle onResize={setSidePanelWidth} width={sidePanelWidth} />
-      <aside className="side-panel" style={{ width: sidePanelWidth }}>
+      <aside
+        className="side-panel"
+        style={{ width: sidePanelWidth }}
+        data-density={prefs.density}
+        data-tab={panelTab}
+      >
         <div className="side-panel-chrome">
           <div className="side-panel-header">
             <div className="side-panel-header-top">
@@ -1016,27 +1169,49 @@ export function SidePanel() {
               <SidePanelFileMenu />
             </div>
             <div className="side-panel-header-status">
-              <span className={`tool-badge ${activeTool}`}>{activeLabel}</span>
+              <span className={`tool-badge ${activeTool}`} title="Active tool">
+                <span className="tool-badge-dot" aria-hidden />
+                <span className="tool-badge-label">{activeLabel}</span>
+              </span>
               <div className="side-history-actions">
                 <button
                   type="button"
-                  className="side-history-btn"
+                  className="side-history-btn side-history-btn-icon"
                   disabled={!canUndo}
                   onClick={() => undo()}
                   title="Undo (Ctrl+Z)"
+                  aria-label="Undo"
                 >
-                  Undo
+                  <HistoryArrowIcon />
                 </button>
                 <button
                   type="button"
-                  className="side-history-btn"
+                  className="side-history-btn side-history-btn-icon side-history-btn-redo"
                   disabled={!canRedo}
                   onClick={() => redo()}
                   title="Redo (Ctrl+Y)"
+                  aria-label="Redo"
                 >
-                  Redo
+                  <HistoryArrowIcon />
                 </button>
               </div>
+              {panelTab !== 'scene' && (
+                <button
+                  type="button"
+                  className="side-fold-all"
+                  title={
+                    allVisibleCollapsed
+                      ? 'Expand every section on this tab'
+                      : 'Collapse every section on this tab'
+                  }
+                  aria-label={allVisibleCollapsed ? 'Expand all sections' : 'Collapse all sections'}
+                  onClick={() =>
+                    allVisibleCollapsed ? prefs.expandAll() : prefs.collapseAll(visibleSectionIds)
+                  }
+                >
+                  <FoldAllIcon expanded={!allVisibleCollapsed} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -1061,7 +1236,7 @@ export function SidePanel() {
         <div className={`side-panel-scroll themed-scroll${panelTab === 'scene' ? ' side-panel-scroll-scene' : ''}`}>
           {panelTab === 'create' && (
           <>
-          <SideSection title="Mesh tools" columns={2} order={23}>
+          <SideSection id="mesh-tools" title="Mesh tools" columns={2} order={23}>
             <SideBtnGroup cols={3}>
               <button
                 type="button"
@@ -1121,7 +1296,7 @@ export function SidePanel() {
               </p>
             )}
           </SideSection>
-          <SideSection title="Drawing options" order={24}>
+          <SideSection id="drawing-options" title="Drawing options" order={24}>
               <div className="side-checkbox-row">
               <label className="side-checkbox" title="Snap to path endpoints">
                 <input
@@ -1205,7 +1380,7 @@ export function SidePanel() {
               </label>
               </div>
           </SideSection>
-          <SideSection title="Strokes & drawing" columns={2} order={21}>
+          <SideSection id="strokes-drawing" title="Strokes & drawing" columns={2} order={21}>
             <div className="side-create-label">Drawing input</div>
             <SideBtnGroup cols={2}>
               <button
@@ -1269,6 +1444,74 @@ export function SidePanel() {
                 </button>
               ))}
             </SideBtnGroup>
+            <div className="side-create-label">3D operations</div>
+            <SideBtnGroup cols={2}>
+              <button
+                type="button"
+                className={`side-btn ${activeExtrudeOn ? 'active' : ''}`}
+                onClick={toggleExtrudeMode}
+                title="Extrude Sketch or Vector Pen strokes into 3D capsule doodles"
+              >
+                Extrude
+              </button>
+              <button
+                type="button"
+                className={`side-btn ${activeLatheOn ? 'active' : ''}`}
+                onClick={toggleLatheMode}
+                title="Revolve Sketch or Vector Pen profiles — shape follows the orthographic view you draw in"
+              >
+                Lathe
+              </button>
+            </SideBtnGroup>
+            {(activeLatheOn || selectedLatheSource) && (
+              <>
+                <div className="side-create-label">{selectedLatheSource ? 'Selected lathe' : 'Lathe precision'}</div>
+                <SideSlider
+                  label="Round sides"
+                  value={shownLatheRadialSegments}
+                  display={`${shownLatheRadialSegments}`}
+                  min={8}
+                  max={64}
+                  step={1}
+                  onChange={(value) => setLatheSettings({ latheRadialSegments: value })}
+                  onCommit={commitSketchSourceEdit}
+                />
+                <SideSlider
+                  label="Profile detail"
+                  value={shownLatheProfileRings}
+                  display={`${shownLatheProfileRings}`}
+                  min={8}
+                  max={128}
+                  step={1}
+                  onChange={(value) => setLatheSettings({ latheProfileRings: value })}
+                  onCommit={commitSketchSourceEdit}
+                />
+                <SideSlider
+                  label="Profile smoothing"
+                  value={shownLatheSmoothing}
+                  display={`${Math.round(shownLatheSmoothing * 100)}%`}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={(value) => setLatheSettings({ latheSmoothing: value })}
+                  onCommit={commitSketchSourceEdit}
+                />
+                <label className="side-checkbox" title="Add flat caps at the top and bottom of the lathe">
+                  <input
+                    type="checkbox"
+                    checked={shownLatheCaps}
+                    onChange={(e) => setLatheCaps(e.target.checked)}
+                  />
+                  <span>Top &amp; bottom caps</span>
+                </label>
+                {activeLatheOn && <p className="side-color-hint muted">{getLatheViewHint(activeView)}</p>}
+              </>
+            )}
+            {selectedObj?.topologyLocked && (
+              <div className="side-chips">
+                <span className="lock-indicator">Locked</span>
+              </div>
+            )}
             {strokeMode === 'centerline' && !activeExtrudeOn && !activeLatheOn && (
               <div className="hair-draw-options path-draw-options">
                 <div className="hair-draw-options-heading"><span>Path settings</span><span className="muted">New strokes</span></div>
@@ -1434,7 +1677,7 @@ export function SidePanel() {
               </div>
             )}
           </SideSection>
-          <SideSection title="Shape tools" order={20}>
+          <SideSection id="shape-tools" title="Shape tools" order={20}>
             <div className="side-shape-menus">
               <SidePanelPrimitivesMenu
                 activePrimitiveKind={activePrimitiveKind}
@@ -1459,78 +1702,9 @@ export function SidePanel() {
               </p>
             )}
           </SideSection>
-          <SideSection title="3D operations" order={22}>
-            <SideBtnGroup cols={2}>
-              <button
-                type="button"
-                className={`side-btn ${activeExtrudeOn ? 'active' : ''}`}
-                onClick={toggleExtrudeMode}
-                title="Extrude Sketch or Vector Pen strokes into 3D capsule doodles"
-              >
-                Extrude
-              </button>
-              <button
-                type="button"
-                className={`side-btn ${activeLatheOn ? 'active' : ''}`}
-                onClick={toggleLatheMode}
-                title="Revolve Sketch or Vector Pen profiles — shape follows the orthographic view you draw in"
-              >
-                Lathe
-              </button>
-            </SideBtnGroup>
-            {(activeLatheOn || selectedLatheSource) && (
-              <>
-                <div className="side-create-label">{selectedLatheSource ? 'Selected lathe' : 'Lathe precision'}</div>
-                <SideSlider
-                  label="Round sides"
-                  value={shownLatheRadialSegments}
-                  display={`${shownLatheRadialSegments}`}
-                  min={8}
-                  max={64}
-                  step={1}
-                  onChange={(value) => setLatheSettings({ latheRadialSegments: value })}
-                  onCommit={commitSketchSourceEdit}
-                />
-                <SideSlider
-                  label="Profile detail"
-                  value={shownLatheProfileRings}
-                  display={`${shownLatheProfileRings}`}
-                  min={8}
-                  max={128}
-                  step={1}
-                  onChange={(value) => setLatheSettings({ latheProfileRings: value })}
-                  onCommit={commitSketchSourceEdit}
-                />
-                <SideSlider
-                  label="Profile smoothing"
-                  value={shownLatheSmoothing}
-                  display={`${Math.round(shownLatheSmoothing * 100)}%`}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  onChange={(value) => setLatheSettings({ latheSmoothing: value })}
-                  onCommit={commitSketchSourceEdit}
-                />
-                <label className="side-checkbox" title="Add flat caps at the top and bottom of the lathe">
-                  <input
-                    type="checkbox"
-                    checked={shownLatheCaps}
-                    onChange={(e) => setLatheCaps(e.target.checked)}
-                  />
-                  <span>Top &amp; bottom caps</span>
-                </label>
-                {activeLatheOn && <p className="side-color-hint muted">{getLatheViewHint(activeView)}</p>}
-              </>
-            )}
-            {selectedObj?.topologyLocked && (
-              <div className="side-chips">
-                <span className="lock-indicator">Locked</span>
-              </div>
-            )}
-          </SideSection>
 
           {isSketchOrPen && (
-            <SideSection title="Active tool · Stroke" order={30}>
+            <SideSection id="active-stroke" title="Active tool · Stroke" order={30}>
               {selectedSketchSource && selectedObj && (
                 <>
                   <div className="side-create-label">Source</div>
@@ -1919,7 +2093,7 @@ export function SidePanel() {
           )}
 
           {selectedPrimitiveSource && selectedPrimitiveSize && (
-            <SideSection title="Active tool · Primitive" order={31}>
+            <SideSection id="active-primitive" title="Active tool · Primitive" order={31}>
               <div className="side-create-label">Source</div>
               <div className="side-chips">
                 <span className="lock-indicator">Editable {selectedPrimitiveSource.type}</span>
@@ -2006,9 +2180,9 @@ export function SidePanel() {
           )}
 
           {activeTool === 'vector-shape' && (
-            <SideSection title="Active tool · Vector" order={32}>
+            <SideSection id="active-vector" title="Active tool · Vector" order={32}>
               <div className="side-create-label">Placement</div>
-              <p className="side-color-hint muted">Drag in an ortho view to place.</p>
+              <p className="side-color-hint muted">Drag in the viewport to place. Perspective uses a camera-facing draw plane.</p>
               {activeShapeKind === 'roundedBox' && (
                 <>
                   <div className="side-create-label">Geometry</div>
@@ -2039,7 +2213,7 @@ export function SidePanel() {
           )}
 
           {isSculptTool && (
-            <SideSection title="Active tool · Sculpt" order={33}>
+            <SideSection id="active-sculpt" title="Active tool · Sculpt" order={33}>
               <div className="side-create-label">Brush</div>
               <SideSlider
                 label="Brush strength"
@@ -2068,7 +2242,7 @@ export function SidePanel() {
           />
           {editSubTab === 'select-transform' && (
           <>
-          <SideSection title="Selection" columns={2} order={20}>
+          <SideSection id="selection" title="Selection" columns={2} order={20}>
             <div className="side-create-label">Selection filters</div>
             <SideBtnGroup cols={2}>
               <button
@@ -2144,7 +2318,7 @@ export function SidePanel() {
             )}
           </SideSection>
 
-          <SideSection title="Transform" columns={2} order={21}>
+          <SideSection id="transform" title="Transform" columns={2} order={21}>
             <div className="side-create-label">Tools</div>
             <SideBtnGroup cols={2}>
               <button
@@ -2237,7 +2411,7 @@ export function SidePanel() {
             </SideBtnGroup>
           </SideSection>
 
-          <SideSection title="Gizmo" columns={2} order={22}>
+          <SideSection id="gizmo" title="Gizmo" columns={2} order={22}>
             <div className="side-create-label">Mode</div>
             <SideBtnGroup cols={2}>
               <button
@@ -2343,7 +2517,7 @@ export function SidePanel() {
 
           {editSubTab === 'mesh' && (
           <>
-          <SideSection title="Symmetry" order={23}>
+          <SideSection id="symmetry" title="Symmetry" order={23}>
             <div className="side-create-label">Mirror</div>
             <label className="side-checkbox" title="Mirror new geometry and sculpt strokes (Blockbench-style)">
               <input
@@ -2392,7 +2566,7 @@ export function SidePanel() {
             </p>
           </SideSection>
 
-          <SideSection title="Geometry" order={22}>
+          <SideSection id="geometry" title="Geometry" order={22}>
             <div className="side-create-label">Normals</div>
             <SideBtnGroup cols={2}>
               <button
@@ -2481,7 +2655,7 @@ export function SidePanel() {
             </p>
           </SideSection>
 
-          <SideSection title="Topology Tools" order={24}>
+          <SideSection id="topology-tools" title="Topology Tools" order={24}>
             <SideBtnGroup cols={2}>
               <button
                 className={`side-btn ${activeTool === 'knife' ? 'active' : ''}`}
@@ -2509,6 +2683,24 @@ export function SidePanel() {
                 title="Loop cut — click edge, scroll to slide, click to confirm (Ctrl+R)"
               >
                 Loop Cut
+              </button>
+              <button
+                type="button"
+                className="side-btn"
+                disabled={!canInsetFaces}
+                onClick={handleBeginInset}
+                title="Inset faces — shrink selected faces in-plane and add side walls (I)"
+              >
+                Inset
+              </button>
+              <button
+                type="button"
+                className="side-btn"
+                disabled={!canExtrudeFaces}
+                onClick={handleBeginExtrude}
+                title="Extrude faces — push or pull the selection along its normal; move mouse to set depth, click to confirm, Escape cancels (E)"
+              >
+                Extrude
               </button>
             </SideBtnGroup>
             {(activeTool === 'knife' || activeTool === 'mirror-knife') && (
@@ -2554,7 +2746,7 @@ export function SidePanel() {
             )}
           </SideSection>
 
-          <SideSection title="Object" columns={2} order={30}>
+          <SideSection id="object" title="Object" columns={2} order={30}>
             <div className="side-create-label">Shading & topology</div>
             <SideBtnGroup cols={2}>
               <button className="side-btn" onClick={toggleTopologyLock} title="Lock topology (L)">
@@ -2615,7 +2807,7 @@ export function SidePanel() {
 
           {panelTab === 'look' && (
           <>
-          <SideSection title="Appearance" order={15}>
+          <SideSection id="appearance" title="Appearance" order={15}>
             <div className="side-create-label">Color</div>
             <PaletteBar variant="side" />
             <div className="side-create-label">Editors</div>
@@ -2657,7 +2849,7 @@ export function SidePanel() {
             </div>
           </SideSection>
 
-          <SideSection title="Display" order={16}>
+          <SideSection id="display" title="Display" order={16}>
             <SideButtonDropdown
               label="View"
               value={viewportDisplayMode}
@@ -2677,7 +2869,7 @@ export function SidePanel() {
             )}
             <label
               className="side-checkbox"
-              title="Real-time directional shadows — previews in-game contact and depth"
+              title="Directional shadows fitted to scene content — same sun in every view as Game mode"
             >
               <input
                 type="checkbox"
@@ -2703,6 +2895,25 @@ export function SidePanel() {
               </button>
             </SideBtnGroup>
             <div className="side-create-label">Navigation</div>
+            <div className="side-create-label">View tools layout</div>
+            <SideBtnGroup cols={2}>
+              <button
+                type="button"
+                className={`side-btn ${viewportLwToolsLayout === 'top-right' ? 'active' : ''}`}
+                onClick={() => setViewportLwToolsLayout('top-right')}
+                title="Pan, rotate, zoom, and frame controls in a horizontal bar at the top-right of each viewport"
+              >
+                Top bar
+              </button>
+              <button
+                type="button"
+                className={`side-btn ${viewportLwToolsLayout === 'right-middle' ? 'active' : ''}`}
+                onClick={() => setViewportLwToolsLayout('right-middle')}
+                title="Pan, rotate, zoom, and frame controls in a vertical rail at the right middle of each viewport"
+              >
+                Right rail
+              </button>
+            </SideBtnGroup>
             <button
               type="button"
               className="side-btn side-btn-wide"
@@ -2722,7 +2933,7 @@ export function SidePanel() {
             </button>
           </SideSection>
 
-          <SideSection title="References & images" order={17}>
+          <SideSection id="references" title="References & images" order={17}>
             <div className="side-create-label">Placement</div>
             <p className="side-color-hint muted">
               Drag an image into empty viewport space to place it. Drop onto an existing object to texture that object instead.
@@ -2863,7 +3074,7 @@ export function SidePanel() {
             </p>
           </SideSection>
 
-          <SideSection title="Workspace" order={18} columns={2}>
+          <SideSection id="workspace" title="Workspace" order={18} columns={2}>
             <div className="side-create-label">Toolbars</div>
             <button
               className="side-btn side-btn-wide"
@@ -2874,9 +3085,26 @@ export function SidePanel() {
             </button>
             <TransformToolbarToggle />
             <PrimitivesToolbarToggle />
+            <div className="side-create-label">Panel density</div>
+            <SideBtnGroup cols={3}>
+              {PANEL_DENSITIES.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  className={`side-btn ${prefs.density === d.id ? 'active' : ''}`}
+                  title={d.title}
+                  onClick={() => prefs.setDensity(d.id)}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </SideBtnGroup>
+            <p className="side-color-hint muted">
+              Larger sizing gives pen and touch bigger targets to land on.
+            </p>
           </SideSection>
 
-          <SideSection title="Theme" order={19}>
+          <SideSection id="theme" title="Theme" order={19}>
             <ThemePicker />
           </SideSection>
           </>
@@ -2892,6 +3120,6 @@ export function SidePanel() {
       {showHairTextureDialog && (
         <HairTextureDialog onClose={() => setShowHairTextureDialog(false)} />
       )}
-    </>
+    </SidePanelChrome.Provider>
   )
 }

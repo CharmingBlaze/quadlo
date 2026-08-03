@@ -31,7 +31,7 @@ export function SidePanelVectorShapesMenu({
       active={vectorShapeToolActive}
       options={VECTOR_SHAPE_OPTIONS.map((shape) => ({ value: shape.id, label: shape.label }))}
       onSelect={(value) => onSelect(value as ShapeKind)}
-      title="Drag to draw a low-poly primitive in an ortho view"
+      title="Drag to draw a low-poly primitive in the viewport"
     />
   )
 }

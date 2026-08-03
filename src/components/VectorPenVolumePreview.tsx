@@ -101,5 +101,12 @@ export function VectorPenVolumePreview({ view }: { view: ViewType }) {
     return null
   }
 
-  return <ExtrudePreviewMesh points={previewPoints} view={draftView} closed={closed} />
+  return (
+    <ExtrudePreviewMesh
+      points={previewPoints}
+      view={draftView}
+      closed={closed}
+      planeFrame={vectorPenDraft?.planeFrame}
+    />
+  )
 }

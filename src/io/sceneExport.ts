@@ -14,9 +14,15 @@ import {
   createZipBlob,
   sanitizeExportBasename,
   textureExportFilename,
+  buildMaterialsManifest,
   type TextureExportContext,
 } from './materialTextureExport'
 import { bakeMaterialTexturePixels, bakeMaterialUvTransform } from './exportTextureBake'
+import {
+  appendMtlSurfaceLines,
+  resolveExportSurface,
+  surfaceDedupeKey,
+} from './exportMaterialSurface'
 import {
   APP_NAME,
   DEFAULT_EXPORT_BASENAME,
@@ -74,6 +80,8 @@ export function exportSceneOBJ(
 
     const withUvs = objectUsesTextureMaterial(obj, ctx) ? resolveExportObjectWithUvs(obj) : obj
     const effMat = resolveEffectiveMaterial(withUvs)
+    const surface = resolveExportSurface(effMat)
+    const surfaceKey = surfaceDedupeKey(surface)
     const texId = effMat.textureId ?? withUvs.id
     const hasTexture =
       Boolean(ctx?.pixelDocuments[texId]) &&
@@ -137,22 +145,23 @@ export function exportSceneOBJ(
 
     if (hasTexture && ctx) {
       const mapName = textureExportFilename(withUvs, texId, effMat, ctx)
-      const mtlKey = `tex:${texId}:${mapName}`
+      const mtlKey = `tex:${texId}:${mapName}:${surfaceKey}`
       const mtlName = materialNames.get(mtlKey) ?? `tex_${sanitizeExportBasename(withUvs.name)}`
       if (!materialNames.has(mtlKey)) {
         materialNames.set(mtlKey, mtlName)
         const kd = colorToKd(withUvs.color)
-        mtlText += `\nnewmtl ${mtlName}\n`
-        mtlText += `Kd ${kd.r.toFixed(4)} ${kd.g.toFixed(4)} ${kd.b.toFixed(4)}\n`
-        mtlText += `Ka 0.0500 0.0500 0.0500\n`
-        mtlText += `Ks 0.0000 0.0000 0.0000\n`
-        mtlText += `d ${Math.max(0, Math.min(1, effMat.opacity)).toFixed(4)}\n`
-        mtlText += `illum 2\n`
-        mtlText += `map_Kd ${mapName}\n`
-        // Alpha cutouts (image planes, hair luma-alpha) need dissolve map for DCC tools.
+        const mtlLines: string[] = [
+          `\nnewmtl ${mtlName}`,
+          `Kd ${kd.r.toFixed(4)} ${kd.g.toFixed(4)} ${kd.b.toFixed(4)}`,
+          `Ka 0.0500 0.0500 0.0500`,
+          `Ks 0.0000 0.0000 0.0000`,
+        ]
+        appendMtlSurfaceLines(mtlLines, surface)
+        mtlLines.push(`map_Kd ${mapName}`)
         if (textureHasAlpha) {
-          mtlText += `map_d ${mapName}\n`
+          mtlLines.push(`map_d ${mapName}`)
         }
+        mtlText += `${mtlLines.join('\n')}\n`
       }
 
       objText += `usemtl ${mtlName}\n`
@@ -171,17 +180,20 @@ export function exportSceneOBJ(
       }
 
       for (const [color, faceIndices] of colorGroups) {
-        let mtlName = materialNames.get(`color:${color}`)
+        const mtlKey = `color:${color}:${surfaceKey}`
+        let mtlName = materialNames.get(mtlKey)
         if (!mtlName) {
           mtlName = `mat_${color.toString(16).padStart(6, '0')}`
-          materialNames.set(`color:${color}`, mtlName)
+          materialNames.set(mtlKey, mtlName)
           const kd = colorToKd(color)
-          mtlText += `\nnewmtl ${mtlName}\n`
-          mtlText += `Kd ${kd.r.toFixed(4)} ${kd.g.toFixed(4)} ${kd.b.toFixed(4)}\n`
-          mtlText += `Ka 0.0500 0.0500 0.0500\n`
-          mtlText += `Ks 0.0000 0.0000 0.0000\n`
-          mtlText += `d 1.0\n`
-          mtlText += `illum 1\n`
+          const mtlLines: string[] = [
+            `\nnewmtl ${mtlName}`,
+            `Kd ${kd.r.toFixed(4)} ${kd.g.toFixed(4)} ${kd.b.toFixed(4)}`,
+            `Ka 0.0500 0.0500 0.0500`,
+            `Ks 0.0000 0.0000 0.0000`,
+          ]
+          appendMtlSurfaceLines(mtlLines, surface)
+          mtlText += `${mtlLines.join('\n')}\n`
         }
 
         objText += `usemtl ${mtlName}\n`
@@ -254,6 +266,11 @@ export async function downloadSceneOBJBundle(
     for (const texture of textures) {
       files.push({ path: texture.path, data: texture.data })
     }
+    const manifest = buildMaterialsManifest(objects, ctx)
+    files.push({
+      path: `${safeBase}-materials.json`,
+      data: new TextEncoder().encode(JSON.stringify(manifest, null, 2)),
+    })
   }
 
   return downloadBlob(createZipBlob(files), `${safeBase}-obj.zip`, {

@@ -26,6 +26,7 @@ import {
 } from '../rendering/pixelTextureBlend'
 import { useTheme } from '../theme/useTheme'
 import { ensureObjectMaterial } from '../material/materials'
+import { resolveMaterialSurface } from '../material/materialTypes'
 import { setFlatNormalsFromIndices } from '../rendering/meshGeometry'
 import {
   buildEdgeSegmentsGeometry,
@@ -34,12 +35,11 @@ import {
 import { subscribeUvDraft } from '../uv/uvDraftRelay'
 import { patchMeshGeometryUvs } from '../uv/patchMeshGeometryUvs'
 import { getPixelCompositeCache } from '../pixel/pixelCompositeCache'
+import { worldBounds } from '../mesh/objectTransform'
 
 interface MeshRendererProps {
   object: SceneObject
   isSelected: boolean
-  isPrimary?: boolean
-  objectSelectionOutline?: boolean
   /** Pixel-paint focus: translucent surface, topology, and paint preview. */
   paintFocus?: boolean
   facetExaggeration: number
@@ -116,23 +116,32 @@ export function buildViewportEdgeOutlineGeometry(object: SceneObject): THREE.Buf
   return template.clone()
 }
 
-/** Constant-cost 12-edge selection cage fitted to the object's local bounds. */
-export function buildObjectSelectionBoundsGeometry(object: SceneObject): THREE.BufferGeometry {
-  const box = new THREE.Box3()
-  for (const p of object.positions) box.expandByPoint(new THREE.Vector3(p.x, p.y, p.z))
-  if (box.isEmpty()) return new THREE.BufferGeometry()
+/** Constant-cost 12-edge cage for an axis-aligned world-space bounds box. */
+function buildAxisAlignedBoundsGeometry(
+  min: { x: number; y: number; z: number },
+  max: { x: number; y: number; z: number }
+): THREE.BufferGeometry {
+  if (!Number.isFinite(min.x) || !Number.isFinite(max.x)) {
+    return new THREE.BufferGeometry()
+  }
 
-  const size = box.getSize(new THREE.Vector3())
+  const size = {
+    x: max.x - min.x,
+    y: max.y - min.y,
+    z: max.z - min.z,
+  }
   const maxDimension = Math.max(size.x, size.y, size.z, 1)
   const pad = maxDimension * 0.008
-  box.expandByScalar(pad)
+  const box = {
+    min: { x: min.x - pad, y: min.y - pad, z: min.z - pad },
+    max: { x: max.x + pad, y: max.y + pad, z: max.z + pad },
+  }
 
-  const { min, max } = box
   const corners: [number, number, number][] = [
-    [min.x, min.y, min.z], [max.x, min.y, min.z],
-    [max.x, max.y, min.z], [min.x, max.y, min.z],
-    [min.x, min.y, max.z], [max.x, min.y, max.z],
-    [max.x, max.y, max.z], [min.x, max.y, max.z],
+    [box.min.x, box.min.y, box.min.z], [box.max.x, box.min.y, box.min.z],
+    [box.max.x, box.max.y, box.min.z], [box.min.x, box.max.y, box.min.z],
+    [box.min.x, box.min.y, box.max.z], [box.max.x, box.min.y, box.max.z],
+    [box.max.x, box.max.y, box.max.z], [box.min.x, box.max.y, box.max.z],
   ]
   const edges: [number, number][] = [
     [0, 1], [1, 2], [2, 3], [3, 0],
@@ -151,6 +160,13 @@ export function buildObjectSelectionBoundsGeometry(object: SceneObject): THREE.B
   const result = new THREE.BufferGeometry()
   result.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   return result
+}
+
+/** World-axis-aligned selection cage — refits after rotate/scale instead of rotating with the mesh. */
+export function buildObjectSelectionBoundsGeometry(object: SceneObject): THREE.BufferGeometry {
+  if (object.positions.length === 0) return new THREE.BufferGeometry()
+  const { min, max } = worldBounds(object)
+  return buildAxisAlignedBoundsGeometry(min, max)
 }
 
 function buildViewportMeshGeometryUncached(
@@ -268,6 +284,8 @@ function MeshMaterial({
   textureAlpha = false,
   pixelTextureBlend = false,
   textureTint = '#ffffff',
+  roughness = 1,
+  metalness = 0,
   xray = false,
 }: {
   config: (typeof VIEWPORT_DISPLAY_CONFIG)[ViewportDisplayMode]
@@ -283,6 +301,8 @@ function MeshMaterial({
   pixelTextureBlend?: boolean
   xray?: boolean
   textureTint?: string
+  roughness?: number
+  metalness?: number
 }) {
   const onBeforeCompile = pixelTextureBlend ? patchPixelTextureBlendShader : undefined
   const customProgramCacheKey = pixelTextureBlend
@@ -339,8 +359,8 @@ function MeshMaterial({
       return (
         <meshStandardMaterial
           {...common}
-          roughness={useTexture ? 1 : 0.55}
-          metalness={0}
+          roughness={roughness}
+          metalness={metalness}
           emissive={emissive}
           emissiveIntensity={emissiveIntensity}
           toneMapped={!useTexture}
@@ -352,8 +372,6 @@ function MeshMaterial({
 export const MeshRenderer = memo(function MeshRenderer({
   object,
   isSelected: _isSelected,
-  isPrimary = false,
-  objectSelectionOutline = false,
   paintFocus = false,
   facetExaggeration,
   showDensityHeatmap,
@@ -363,14 +381,14 @@ export const MeshRenderer = memo(function MeshRenderer({
   const {
     meshOutline,
     meshOutlineSecondary,
-    objectSelectOutline,
-    objectSelectOutlineSecondary,
     accentOrange,
   } = useTheme()
   const meshRef = useRef<THREE.Mesh>(null)
   const invalidate = useThree((s) => s.invalidate)
   const shadowsEnabled = useAppStore((s) => s.viewportShadowsEnabled)
-  const castReceiveShadow = shadowsEnabled && displayMode !== 'unlit'
+  // Match in-game lit surfaces — skip unlit/wireframe so shadow maps stay clean.
+  const castReceiveShadow =
+    shadowsEnabled && displayMode !== 'unlit' && displayMode !== 'wireframe'
   const uvPatchRef = useRef({
     topology: null as SceneObject | null,
     flatShading: true,
@@ -602,6 +620,7 @@ export const MeshRenderer = memo(function MeshRenderer({
         return Math.round((1 + (n - 1) * strength) * 255).toString(16).padStart(2, '0')
       }).join('')}`
     : '#ffffff'
+  const { roughness, metalness } = resolveMaterialSurface(materialSettings)
 
   const cageGeometry = useMemo(() => {
     if (!subdPreviewActive) return null
@@ -659,7 +678,8 @@ export const MeshRenderer = memo(function MeshRenderer({
             mesh.geometry,
             topology,
             snapshot.uvs,
-            uvPatchRef.current.flatShading
+            uvPatchRef.current.flatShading,
+            snapshot.faceUvIndices
           )
         ) {
           invalidate()
@@ -703,21 +723,13 @@ export const MeshRenderer = memo(function MeshRenderer({
 
   useEffect(() => () => topologyEdgeGeometry?.dispose(), [topologyEdgeGeometry])
 
-  // Object selection is a constant-cost bounds cage. It stays readable on dense
-  // topology and never covers the surface being modeled or painted.
-  const selectionOutlineGeometry = useMemo(() => {
-    if (!objectSelectionOutline) return null
-    return buildObjectSelectionBoundsGeometry(object)
-  }, [objectSelectionOutline, object.positions])
-
-  useEffect(() => () => selectionOutlineGeometry?.dispose(), [selectionOutlineGeometry])
-
   useEffect(() => {
     const mesh = meshRef.current
     if (!mesh) return
     mesh.castShadow = castReceiveShadow
     mesh.receiveShadow = castReceiveShadow
-  }, [castReceiveShadow])
+    mesh.userData.pickOpacity = meshOpacity
+  }, [castReceiveShadow, meshOpacity])
 
   // Overlay documents paint over the object's existing color/material. A
   // deliberately cleared replacement document uses its own alpha instead.
@@ -732,7 +744,7 @@ export const MeshRenderer = memo(function MeshRenderer({
         renderOrder={0}
       >
         <MeshMaterial
-          key={`${flatShading ? 'flat' : 'smooth'}-${useTexture ? `${texId ?? textureUrl ?? 'tex'}-${textureHasAlpha ? 'alpha' : 'opaque'}-${usePixelTextureOverlay ? 'overlay' : 'replace'}` : 'no-tex'}`}
+          key={`${flatShading ? 'flat' : 'smooth'}-${useTexture ? `${texId ?? textureUrl ?? 'tex'}-${textureHasAlpha ? 'alpha' : 'opaque'}-${usePixelTextureOverlay ? 'overlay' : 'replace'}` : 'no-tex'}-${roughness.toFixed(2)}-${metalness.toFixed(2)}-${xrayOpacity.toFixed(2)}`}
           config={config}
           emissive={emissive}
           emissiveIntensity={emissiveIntensity}
@@ -740,6 +752,8 @@ export const MeshRenderer = memo(function MeshRenderer({
           side={xraySide}
           map={sampledTexture}
           textureTint={textureTint}
+          roughness={roughness}
+          metalness={metalness}
           useVertexColors={useVertexColors}
           useTexture={useTexture}
           textureAlpha={textureHasAlpha}
@@ -747,7 +761,7 @@ export const MeshRenderer = memo(function MeshRenderer({
           xray={viewportXRay}
         />
         {(config.showEdgeOutline || paintFocus) && topologyEdgeGeometry && (
-          <lineSegments geometry={topologyEdgeGeometry} renderOrder={2}>
+          <lineSegments geometry={topologyEdgeGeometry} renderOrder={2} raycast={() => null}>
             <lineBasicMaterial
               color={paintFocus ? meshOutline : edgeColor}
               transparent
@@ -761,19 +775,6 @@ export const MeshRenderer = memo(function MeshRenderer({
           </lineSegments>
         )}
       </mesh>
-
-      {objectSelectionOutline && selectionOutlineGeometry && (
-        <lineSegments geometry={selectionOutlineGeometry} renderOrder={8}>
-          <lineBasicMaterial
-            color={isPrimary ? objectSelectOutline : objectSelectOutlineSecondary}
-            transparent
-            opacity={isPrimary ? 1 : 0.86}
-            depthTest
-            depthWrite={false}
-            toneMapped={false}
-          />
-        </lineSegments>
-      )}
 
       {subdPreviewActive && !paintFocus && cageGeometry && (
         <mesh geometry={cageGeometry} renderOrder={3}>
@@ -810,8 +811,6 @@ export const MeshRenderer = memo(function MeshRenderer({
   prev.object === next.object &&
   prev.object.smoothShading === next.object.smoothShading &&
   prev.isSelected === next.isSelected &&
-  prev.isPrimary === next.isPrimary &&
-  prev.objectSelectionOutline === next.objectSelectionOutline &&
   prev.paintFocus === next.paintFocus &&
   prev.facetExaggeration === next.facetExaggeration &&
   prev.showDensityHeatmap === next.showDensityHeatmap &&

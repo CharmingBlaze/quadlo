@@ -35,4 +35,39 @@ describe('object selection bounds', () => {
     expect(geometry.boundingBox!.max.z).toBeGreaterThan(0)
     geometry.dispose()
   })
+
+  it('refits world-axis-aligned bounds when the object rotates', () => {
+    const positions = [
+      { x: -1, y: -1, z: -1 }, { x: 1, y: -1, z: -1 },
+      { x: 1, y: 1, z: -1 }, { x: -1, y: 1, z: -1 },
+      { x: -1, y: -1, z: 1 }, { x: 1, y: -1, z: 1 },
+      { x: 1, y: 1, z: 1 }, { x: -1, y: 1, z: 1 },
+    ]
+    const object: SceneObject = {
+      id: 'box',
+      name: 'Box',
+      faceColors: [],
+      faces: [],
+      positions,
+      pivot: { x: 0, y: 0, z: 0 },
+      transform: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: Math.PI / 4, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+      topologyLocked: false,
+      polyBudget: 128,
+      polyBudgetMode: 'strict',
+      smoothShading: false,
+      facetExaggeration: 0,
+      color: 0,
+    }
+    const geometry = buildObjectSelectionBoundsGeometry(object)
+    geometry.computeBoundingBox()
+    const bb = geometry.boundingBox!
+    expect(bb.max.x - bb.min.x).toBeGreaterThan(2.5)
+    expect(bb.max.z - bb.min.z).toBeGreaterThan(2.5)
+    expect(bb.max.y - bb.min.y).toBeLessThan(2.2)
+    geometry.dispose()
+  })
 })

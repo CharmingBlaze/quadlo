@@ -1,6 +1,7 @@
 import { darkenHex, hexToRgba, isLightHex, lightenHex, relativeLuminance } from './colorUtils'
 
 export type ThemeId =
+  | 'quadlo-studio'
   | 'quadlo-default'
   | 'midnight'
   | 'ocean'
@@ -324,6 +325,47 @@ const FONT_TECH =
 
 /** UI + viewport color themes (classic palettes and retro console-inspired). */
 export const THEMES: AppTheme[] = [
+  // Quadlo's own chrome: a cool neutral grey stack with one confident blue.
+  // Panels sit a shade lighter than the viewport so the model stays the
+  // brightest thing on screen, and text runs brighter than typical DCC greys
+  // so small labels stay readable at a glance.
+  theme('quadlo-studio', 'Quadlo', {
+    '--bg-dark': '#1e2024',
+    '--bg-panel': '#26282d',
+    '--bg-hover': '#31343a',
+    '--bg-elevated': '#3a3e46',
+    '--border': '#3a3e46',
+    '--text': '#e7e9ee',
+    '--text-muted': '#9ba1ad',
+    '--accent': '#4f8ff7',
+    '--accent-green': '#4fc38a',
+    '--accent-orange': '#f2a83b',
+    '--accent-pink': '#d47ec9',
+    '--danger': '#f0655a',
+    '--accent-dim': '#3a6cc4',
+    '--accent-soft': 'rgba(79, 143, 247, 0.14)',
+    '--accent-green-soft': 'rgba(79, 195, 138, 0.14)',
+    '--accent-orange-soft': 'rgba(242, 168, 59, 0.14)',
+    '--scrollbar-thumb': '#414650',
+    '--scrollbar-thumb-hover': '#565c68',
+    '--overlay-dim': 'rgba(14, 16, 20, 0.74)',
+    '--viewport-bg': '#2a2d33',
+    '--viewport-bg-deep': '#212429',
+    '--grid-cell': '#3a3e46',
+    '--grid-section': '#4e545f',
+    '--mesh-outline': '#6ba4ff',
+    '--mesh-outline-secondary': '#c3cbd8',
+    '--mesh-selected': '#4f8ff7',
+    '--mesh-object-selected': '#f0b445',
+    '--mesh-hover': '#8fbcff',
+    '--symmetry-plane': '#f2a83b',
+    '--uv-canvas-bg': '#24262b',
+    '--uv-grid-a': '#2b2e34',
+    '--uv-grid-b': '#24262b',
+    '--radius': '2px',
+    '--font-ui': "'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif",
+    '--font-mono': FONT_MONO,
+  }, 'Studio'),
   // Adobe Substance 3D Painter–inspired studio chrome (from Painter Qt stylesheet).
   theme('quadlo-default', 'Painter', {
     '--bg-dark': '#2d2d2d',
@@ -4519,7 +4561,10 @@ export const THEMES: AppTheme[] = [
   }, 'Studio')
 ]
 
-export const DEFAULT_THEME_ID: ThemeId = 'quadlo-default'
+export const DEFAULT_THEME_ID: ThemeId = 'quadlo-studio'
+
+/** The default before the Quadlo palette landed — see `bootstrapTheme`. */
+export const PREVIOUS_DEFAULT_THEME_ID: ThemeId = 'quadlo-default'
 
 const themeById = new Map(THEMES.map((t) => [t.id, t]))
 

@@ -26,6 +26,45 @@ describe('ViewportControls navigation', () => {
     expect(resolveIdleLeftNavigation('primitive-box', true, null)).toBe(null)
   })
 
+  it('gives LMB to model painting so brush strokes never orbit', () => {
+    const plain = { shiftKey: false, altKey: false, ctrlKey: false, metaKey: false }
+
+    // Paint on model armed: plain LMB paints, camera stays put.
+    expect(resolveIdleLeftNavigation('select-object', true, null, 'object', true)).toBe(null)
+    expect(
+      leftMouseAction(resolveIdleLeftNavigation('select-object', true, null, 'object', true), true)
+    ).toBe(-1)
+    expect(resolveOrbitLeftNavigation(plain, null, true, 'select-object', null, 'object', true)).toBe(
+      null
+    )
+    // Alt must not steal orbit back mid-stroke either.
+    expect(
+      resolveOrbitLeftNavigation(
+        { shiftKey: false, altKey: true, ctrlKey: false, metaKey: false },
+        null,
+        true,
+        'select-object',
+        null,
+        'object',
+        true
+      )
+    ).toBe(null)
+
+    // Paint off: orbit returns immediately.
+    expect(resolveIdleLeftNavigation('select-object', true, null, 'object', false)).toBe('orbit')
+    expect(resolveOrbitLeftNavigation(plain, null, true, 'select-object', null, 'object', false)).toBe(
+      'orbit'
+    )
+  })
+
+  it('still allows sticky nav and nav gadgets while painting on the model', () => {
+    const plain = { shiftKey: false, altKey: false, ctrlKey: false, metaKey: false }
+    expect(resolveIdleLeftNavigation('select-object', true, 'pan', 'object', true)).toBe('pan')
+    expect(resolveOrbitLeftNavigation(plain, null, true, 'select-object', 'orbit', 'object', true)).toBe(
+      'orbit'
+    )
+  })
+
   it('maps explicit modifier navigation', () => {
     expect(resolvePrimaryNavigation({ shiftKey: false, altKey: true, ctrlKey: false, metaKey: false }, true)).toBe(
       'orbit'

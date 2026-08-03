@@ -16,6 +16,32 @@ export type SoftBrushParams = {
   shape: 'round' | 'square'
   /** Spacing as a fraction of diameter (Photoshop default ~0.15–0.25). */
   spacing?: number
+  /** Stylus pressure scales dab diameter. */
+  pressureSize?: boolean
+  /** Stylus pressure scales dab opacity. */
+  pressureOpacity?: boolean
+}
+
+/** Mouse input reports no useful pressure, so treat it as a full press. */
+const DEFAULT_PRESSURE = 1
+/** Keeps a light touch from producing a zero-width, invisible dab. */
+const MIN_PRESSURE_SCALE = 0.1
+
+/** Apply a 0-1 pressure value to whichever brush dimensions it drives. */
+export function pressureAdjustedParams(
+  params: SoftBrushParams,
+  pressure: number | undefined
+): SoftBrushParams {
+  if (pressure === undefined) return params
+  if (!params.pressureSize && !params.pressureOpacity) return params
+
+  const p = clamp01(pressure)
+  const scale = MIN_PRESSURE_SCALE + (1 - MIN_PRESSURE_SCALE) * p
+  return {
+    ...params,
+    size: params.pressureSize ? Math.max(1, params.size * scale) : params.size,
+    opacity: params.pressureOpacity ? params.opacity * scale : params.opacity,
+  }
 }
 
 export type SoftBrushColor = [number, number, number, number]
@@ -24,6 +50,7 @@ type StrokeState = {
   x: number
   y: number
   carry: number
+  pressure: number
 }
 
 type StampMask = {
@@ -260,14 +287,14 @@ export function beginSoftBrushStroke(
   color: SoftBrushColor,
   params: SoftBrushParams,
   erase = false,
-  stampMirrors?: (x: number, y: number) => void
+  stampMirrors?: (x: number, y: number, params: SoftBrushParams) => void,
+  pressure?: number
 ): void {
-  strokeState = { x, y, carry: 0 }
-  const stamp = (px: number, py: number) => {
-    paintSoftBrushDab(pixels, width, height, px, py, color, params, erase)
-    stampMirrors?.(px, py)
-  }
-  stamp(x, y)
+  const p = pressure ?? DEFAULT_PRESSURE
+  strokeState = { x, y, carry: 0, pressure: p }
+  const dabParams = pressureAdjustedParams(params, pressure)
+  paintSoftBrushDab(pixels, width, height, x, y, color, dabParams, erase)
+  stampMirrors?.(x, y, dabParams)
 }
 
 /** Continue an active soft stroke to a new point with Adobe-like spacing. */
@@ -280,21 +307,25 @@ export function continueSoftBrushStroke(
   color: SoftBrushColor,
   params: SoftBrushParams,
   erase = false,
-  stampMirrors?: (x: number, y: number) => void
+  stampMirrors?: (x: number, y: number, params: SoftBrushParams) => void,
+  pressure?: number
 ): void {
   if (!strokeState) {
-    beginSoftBrushStroke(pixels, width, height, x, y, color, params, erase, stampMirrors)
+    beginSoftBrushStroke(pixels, width, height, x, y, color, params, erase, stampMirrors, pressure)
     return
   }
 
   const spacing = dabSpacingPx(params)
-  const stamp = (px: number, py: number) => {
-    paintSoftBrushDab(pixels, width, height, px, py, color, params, erase)
-    stampMirrors?.(px, py)
+  const stamp = (px: number, py: number, dabPressure: number) => {
+    const dabParams = pressureAdjustedParams(params, dabPressure)
+    paintSoftBrushDab(pixels, width, height, px, py, color, dabParams, erase)
+    stampMirrors?.(px, py, dabParams)
   }
 
-  let lx = strokeState.x
-  let ly = strokeState.y
+  const lx = strokeState.x
+  const ly = strokeState.y
+  const fromPressure = strokeState.pressure
+  const toPressure = pressure ?? DEFAULT_PRESSURE
   let carry = strokeState.carry
   const dx = x - lx
   const dy = y - ly
@@ -310,12 +341,15 @@ export function continueSoftBrushStroke(
     traveled += need
     const px = lx + nx * traveled
     const py = ly + ny * traveled
-    stamp(px, py)
+    // Ramp pressure along the segment so a fading stylus tapers smoothly
+    // instead of stepping at each reported sample.
+    const t = traveled / dist
+    stamp(px, py, fromPressure + (toPressure - fromPressure) * t)
     carry = 0
   }
 
   carry += dist - traveled
-  strokeState = { x, y, carry }
+  strokeState = { x, y, carry, pressure: toPressure }
 }
 
 /** Paint a polyline with soft brush spacing (resets stroke state). */
@@ -323,18 +357,40 @@ export function paintSoftBrushPolyline(
   pixels: Uint8ClampedArray,
   width: number,
   height: number,
-  points: readonly { x: number; y: number }[],
+  points: readonly { x: number; y: number; pressure?: number }[],
   color: SoftBrushColor,
   params: SoftBrushParams,
   erase = false,
-  stampMirrors?: (x: number, y: number) => void
+  stampMirrors?: (x: number, y: number, params: SoftBrushParams) => void
 ): void {
   if (points.length === 0) return
   resetSoftBrushStroke()
   const first = points[0]!
-  beginSoftBrushStroke(pixels, width, height, first.x, first.y, color, params, erase, stampMirrors)
+  beginSoftBrushStroke(
+    pixels,
+    width,
+    height,
+    first.x,
+    first.y,
+    color,
+    params,
+    erase,
+    stampMirrors,
+    first.pressure
+  )
   for (let i = 1; i < points.length; i++) {
     const p = points[i]!
-    continueSoftBrushStroke(pixels, width, height, p.x, p.y, color, params, erase, stampMirrors)
+    continueSoftBrushStroke(
+      pixels,
+      width,
+      height,
+      p.x,
+      p.y,
+      color,
+      params,
+      erase,
+      stampMirrors,
+      p.pressure
+    )
   }
 }

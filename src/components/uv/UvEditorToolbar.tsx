@@ -53,6 +53,13 @@ interface UvEditorToolbarProps {
   }) => void
   onSelectConnected: () => void
   canSelectConnected: boolean
+  uvEditorShowSeams: boolean
+  onSetShowSeams: (on: boolean) => void
+  onApplySeam: (op: 'mark' | 'clear' | 'toggle') => void
+  onClearAllSeams: () => void
+  /** Number of edges selected in the 3D viewport, which seam marking acts on. */
+  selectedEdgeCount: number
+  seamCount: number
   imageLayerEdit: boolean
   autoResizeUvsWithImage: boolean
   onSetImageLayerEdit: (on: boolean) => void
@@ -145,6 +152,12 @@ export function UvEditorToolbar({
   onSetTextureTransform,
   onSelectConnected,
   canSelectConnected,
+  uvEditorShowSeams,
+  onSetShowSeams,
+  onApplySeam,
+  onClearAllSeams,
+  selectedEdgeCount,
+  seamCount,
   imageLayerEdit,
   autoResizeUvsWithImage,
   onSetImageLayerEdit,
@@ -277,6 +290,57 @@ export function UvEditorToolbar({
           >
             Select connected island
           </button>
+        </div>
+      </section>
+
+      <section className="uv-sidebar-section">
+        <div className="uv-sidebar-section-head">Seams</div>
+        <div className="uv-sidebar-stack">
+          <button
+            type="button"
+            className="uv-btn uv-btn-block uv-btn-seam"
+            disabled={selectedEdgeCount === 0}
+            onClick={() => onApplySeam('mark')}
+            title={
+              selectedEdgeCount === 0
+                ? 'Switch to Edge mode in the 3D viewport and select edges to mark as seams'
+                : `Mark ${selectedEdgeCount} selected edge${selectedEdgeCount === 1 ? '' : 's'} as a UV seam (Ctrl+E)`
+            }
+          >
+            Mark seam
+            {selectedEdgeCount > 0 ? ` (${selectedEdgeCount})` : ''}
+          </button>
+          <div className="uv-btn-grid">
+            <button
+              type="button"
+              className="uv-btn"
+              disabled={selectedEdgeCount === 0}
+              onClick={() => onApplySeam('clear')}
+              title="Remove the seam from the selected edges (Ctrl+Shift+E)"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              className="uv-btn"
+              disabled={seamCount === 0}
+              onClick={onClearAllSeams}
+              title="Remove every seam on this object"
+            >
+              Clear all
+            </button>
+          </div>
+          <UvToggle
+            label="Show seams"
+            checked={uvEditorShowSeams}
+            onChange={onSetShowSeams}
+            title="Draw seams in the 3D viewport and UV canvas"
+          />
+          <p className="uv-sidebar-help">
+            {seamCount === 0
+              ? 'Select edges in the 3D viewport (Edge mode), then Mark seam. Unwrap will cut islands there.'
+              : `${seamCount} seam edge${seamCount === 1 ? '' : 's'}. Unwrap splits islands at every seam.`}
+          </p>
         </div>
       </section>
 

@@ -112,6 +112,26 @@ describe('Vector Pen UX store', () => {
     expect(draft?.pendingAnchorIndex).toBe(0)
   })
 
+  it('perspective pen locks a plane frame and rejects drafts without one', () => {
+    useAppStore.getState().setDrawInputMode('vector-pen')
+    useAppStore.getState().penPointerDown({ x: 5, y: 5 }, 'perspective')
+    expect(useAppStore.getState().vectorPenDraft).toBeNull()
+
+    const frame = {
+      origin: { x: 0, y: 0, z: 0 },
+      right: { x: 1, y: 0, z: 0 },
+      up: { x: 0, y: 1, z: 0 },
+    }
+    useAppStore.getState().penPointerDown({ x: 5, y: 5 }, 'perspective', frame)
+    const draft = useAppStore.getState().vectorPenDraft
+    expect(draft?.view).toBe('perspective')
+    expect(draft?.planeFrame).toEqual(frame)
+    expect(draft?.anchors).toHaveLength(1)
+
+    useAppStore.getState().penPointerMove({ x: 20, y: 12 })
+    expect(useAppStore.getState().vectorPenDraft?.previewPoint).toEqual({ x: 20, y: 12 })
+  })
+
   it('beginEditVectorPath loads anchors; cancel restores original mesh', () => {
     const object = makeVectorObject('vec-a')
     useAppStore.setState({

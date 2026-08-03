@@ -1,33 +1,33 @@
-import { useEffect, useRef } from 'react'
-import type * as THREE from 'three'
+import { useRef } from 'react'
+import type { DirectionalLight } from 'three'
 import { useAppStore } from '../store/appStore'
 import { VIEWPORT_DISPLAY_CONFIG } from '../rendering/viewportDisplay'
 import { useTheme } from '../theme/useTheme'
-import { configureDirectionalShadow } from './viewport/ViewportShadowSetup'
+import { useKeyLightShadowFit } from './viewport/ViewportShadowSetup'
+import { GAME_SUN_OFFSET } from '../viewport/viewportShadowBounds'
+
+const GAME_SUN_POSITION: [number, number, number] = [
+  GAME_SUN_OFFSET.x,
+  GAME_SUN_OFFSET.y,
+  GAME_SUN_OFFSET.z,
+]
 
 function KeyDirectionalLight({
-  position,
   intensity,
   color,
   castShadow,
 }: {
-  position: [number, number, number]
   intensity: number
   color?: string
   castShadow: boolean
 }) {
-  const lightRef = useRef<THREE.DirectionalLight>(null)
-
-  useEffect(() => {
-    const light = lightRef.current
-    if (!light) return
-    configureDirectionalShadow(light)
-  }, [])
+  const lightRef = useRef<DirectionalLight>(null)
+  useKeyLightShadowFit(lightRef, castShadow)
 
   return (
     <directionalLight
       ref={lightRef}
-      position={position}
+      position={GAME_SUN_POSITION}
       intensity={intensity}
       color={color}
       castShadow={castShadow}
@@ -35,6 +35,10 @@ function KeyDirectionalLight({
   )
 }
 
+/**
+ * Viewport lighting. Key sun direction matches Game mode in every view so
+ * front/right/top/perspective all preview the same in-engine contact shadows.
+ */
 export function ViewportLighting() {
   const mode = useAppStore((s) => s.viewportDisplayMode)
   const shadowsEnabled = useAppStore((s) => s.viewportShadowsEnabled)
@@ -43,20 +47,21 @@ export function ViewportLighting() {
   const sky = text
   const ground = css['--viewport-bg-deep']
   const fill = css['--grid-section']
-  const castShadow = shadowsEnabled && mode !== 'unlit'
+  const castShadow = shadowsEnabled && mode !== 'unlit' && mode !== 'wireframe'
 
   if (!cfg.gameLighting && mode === 'unlit') {
     return null
   }
 
+  const ambientBoost = castShadow ? 0.92 : 1
+
   if (mode === 'model') {
-    // Soft key + restrained fill — avoids the flat ambient wash of high hemisphere + ambient.
     return (
       <>
-        <ambientLight intensity={0.32} />
-        <hemisphereLight color={sky} groundColor={ground} intensity={0.16} />
-        <KeyDirectionalLight position={[100, 150, 80]} intensity={1.15} castShadow={castShadow} />
-        <directionalLight position={[-80, 60, -100]} intensity={0.28} />
+        <ambientLight intensity={0.3 * ambientBoost} />
+        <hemisphereLight color={sky} groundColor={ground} intensity={0.15 * ambientBoost} />
+        <KeyDirectionalLight intensity={1.12} castShadow={castShadow} />
+        <directionalLight position={[-80, 60, -100]} intensity={0.26} />
       </>
     )
   }
@@ -64,26 +69,20 @@ export function ViewportLighting() {
   if (cfg.gameLighting) {
     return (
       <>
-        <ambientLight intensity={0.38} />
-        <hemisphereLight color={sky} groundColor={ground} intensity={0.22} />
-        <KeyDirectionalLight
-          position={[80, 120, 60]}
-          intensity={0.82}
-          color={text}
-          castShadow={castShadow}
-        />
-        <directionalLight position={[-40, 40, -80]} intensity={0.16} color={fill} />
+        <ambientLight intensity={0.36 * ambientBoost} />
+        <hemisphereLight color={sky} groundColor={ground} intensity={0.2 * ambientBoost} />
+        <KeyDirectionalLight intensity={0.88} color={text} castShadow={castShadow} />
+        <directionalLight position={[-40, 40, -80]} intensity={0.15} color={fill} />
       </>
     )
   }
 
-  // Default modeling light — contrasty key/fill, not a washed studio fill.
   return (
     <>
-      <ambientLight intensity={0.3} />
-      <hemisphereLight color="#c8c8c8" groundColor={ground} intensity={0.18} />
-      <KeyDirectionalLight position={[100, 150, 80]} intensity={1.08} castShadow={castShadow} />
-      <directionalLight position={[-80, -50, -100]} intensity={0.26} />
+      <ambientLight intensity={0.28 * ambientBoost} />
+      <hemisphereLight color="#c8c8c8" groundColor={ground} intensity={0.16 * ambientBoost} />
+      <KeyDirectionalLight intensity={1.05} castShadow={castShadow} />
+      <directionalLight position={[-80, -50, -100]} intensity={0.24} />
     </>
   )
 }

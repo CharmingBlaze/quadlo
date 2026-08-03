@@ -125,7 +125,7 @@ export function ViewportToolOverlays({
 
       {/* Stroke preview mounts in perspective too (world-space ExtrudePreviewMesh). */}
       {showToolPreviews && <StrokeCanvas view={view} />}
-      {showToolPreviews && view !== 'perspective' && <VectorCanvas view={view} />}
+      {showToolPreviews && <VectorCanvas view={view} />}
 
       <ModalAxisLine />
     </>

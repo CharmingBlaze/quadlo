@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { FloatingPanel } from './FloatingPanel'
-import { ColorWheelPicker } from './material/ColorWheelPicker'
+import { ColorPickerSection } from './material/ColorPickerSection'
 import { GradientLineEditor } from './material/GradientLineEditor'
+import { MaterialTextureSection } from './material/MaterialTextureSection'
+import { MaterialSurfaceSection } from './material/MaterialSurfaceSection'
 import { useAppStore } from '../store/appStore'
-import { PRESET_PALETTES } from '../material/palettes'
-import type { GradientDirection, HarmonyScheme, MaterialMode } from '../material/materialTypes'
+import { syncGradientStopsFromObject } from '../material/materialEditorSlice'
+import type { GradientDirection, MaterialMode } from '../material/materialTypes'
 import { hexToRgba4, rgba4ToHex } from '../material/materialTypes'
 import { resolveEffectiveMaterial } from '../material/materials'
 import { downloadObjectTexturePng } from '../io/materialTextureExport'
@@ -16,6 +18,12 @@ declare global {
   interface Window {
     EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> }
   }
+}
+
+const MODE_LABELS: Record<MaterialMode, string> = {
+  solid: 'Solid',
+  vertexGradient: 'Gradient',
+  texture: 'Texture',
 }
 
 export function MaterialEditorPanel() {
@@ -32,9 +40,10 @@ export function MaterialEditorPanel() {
     materialEditorGradientActiveStop,
     materialEditorGradientStops,
     materialEditorApplyToSelection,
-    materialColorCancelEpoch,
     selectedObjectId,
     selectionObjectIds,
+    selectionMode,
+    meshSelection,
     objectTextures,
     pixelDocuments,
     setMaterialEditorPanel,
@@ -56,10 +65,14 @@ export function MaterialEditorPanel() {
     setMaterialEditorMode,
     setMaterialOpacity,
     setMaterialDoubleSided,
+    patchMaterialTextureSettings,
+    patchMaterialSurfaceSettings,
     createCustomPalette,
     renameCustomPalette,
     deleteCustomPalette,
     loadObjectTexture,
+    openPixelEditor,
+    setUvEditorOpen,
   } = useAppStore(
     useShallow((s) => ({
       materialEditorOpen: s.materialEditorOpen,
@@ -78,6 +91,7 @@ export function MaterialEditorPanel() {
       selectedObjectId: s.selectedObjectId,
       selectionObjectIds: s.selectionObjectIds,
       selectionMode: s.selectionMode,
+      meshSelection: s.meshSelection,
       objectTextures: s.objectTextures,
       pixelDocuments: s.pixelDocuments,
       setMaterialEditorPanel: s.setMaterialEditorPanel,
@@ -99,31 +113,50 @@ export function MaterialEditorPanel() {
       setMaterialEditorMode: s.setMaterialEditorMode,
       setMaterialOpacity: s.setMaterialOpacity,
       setMaterialDoubleSided: s.setMaterialDoubleSided,
+      patchMaterialTextureSettings: s.patchMaterialTextureSettings,
+      patchMaterialSurfaceSettings: s.patchMaterialSurfaceSettings,
       createCustomPalette: s.createCustomPalette,
       renameCustomPalette: s.renameCustomPalette,
       deleteCustomPalette: s.deleteCustomPalette,
       loadObjectTexture: s.loadObjectTexture,
+      openPixelEditor: s.openPixelEditor,
+      setUvEditorOpen: s.setUvEditorOpen,
     }))
   )
 
   const primaryId = selectedObjectId ?? selectionObjectIds[0] ?? null
   const obj = useAppStore((s) => s.objects.find((o) => o.id === primaryId) ?? null)
   const mat = obj ? resolveEffectiveMaterial(obj) : null
+  const hasSelection = selectionObjectIds.length > 0 || !!selectedObjectId
+  const mode = mat?.mode ?? 'solid'
 
-  const paletteOptions = useMemo(
-    () => [
-      ...PRESET_PALETTES.map((p) => ({ id: p.id, name: p.name })),
-      ...materialEditorCustomPalettes.map((p) => ({ id: p.id, name: p.name })),
-    ],
-    [materialEditorCustomPalettes]
-  )
+  const texId = mode === 'texture' ? mat?.textureId ?? primaryId : null
+  const textureInfo = texId ? objectTextures[texId] : undefined
+  const pixelDoc = texId ? pixelDocuments[texId] ?? null : null
 
-  const swatches = useMemo(() => {
-    const preset = PRESET_PALETTES.find((p) => p.id === materialEditorPaletteId)
-    if (preset) return preset.colors
-    const custom = materialEditorCustomPalettes.find((p) => p.id === materialEditorPaletteId)
-    return custom?.colors ?? []
-  }, [materialEditorPaletteId, materialEditorCustomPalettes])
+  const selectionSummary = useMemo(() => {
+    if (!hasSelection || !obj) return 'No object selected'
+    const parts: string[] = [obj.name || 'Object']
+    if (selectionMode === 'face' && meshSelection?.objectId === obj.id && meshSelection.faces.length > 0) {
+      parts.push(`${meshSelection.faces.length} face${meshSelection.faces.length === 1 ? '' : 's'}`)
+    } else if (selectionMode === 'vertex' && meshSelection?.vertices.length) {
+      parts.push(`${meshSelection.vertices.length} verts`)
+    } else if (selectionMode === 'edge' && meshSelection?.edges.length) {
+      parts.push(`${meshSelection.edges.length} edges`)
+    }
+    parts.push(MODE_LABELS[mode])
+    return parts.join(' · ')
+  }, [hasSelection, obj, selectionMode, meshSelection, mode])
+
+  useEffect(() => {
+    if (!materialEditorOpen || !obj) return
+    const stops = syncGradientStopsFromObject(obj)
+    if (stops) {
+      useAppStore.setState({
+        materialEditorGradientStops: stops,
+      })
+    }
+  }, [materialEditorOpen, primaryId, obj?.id, obj?.cornerColors])
 
   const runEyedropper = useCallback(async () => {
     if (window.EyeDropper) {
@@ -162,10 +195,6 @@ export function MaterialEditorPanel() {
     setMaterialEditorEyedropperActive,
   ])
 
-  const hasSelection = selectionObjectIds.length > 0 || !!selectedObjectId
-  const texId =
-    mat?.mode === 'texture' ? mat.textureId ?? primaryId : null
-  const textureInfo = texId ? objectTextures[texId] : undefined
   const textureCtx = useMemo(
     () => ({ pixelDocuments, objectTextures }),
     [pixelDocuments, objectTextures]
@@ -185,6 +214,15 @@ export function MaterialEditorPanel() {
     if (file) await loadObjectTexture(primaryId, file)
   }, [loadObjectTexture, primaryId])
 
+  const openLinkedPixelEditor = useCallback(() => {
+    if (!primaryId) return
+    openPixelEditor({ linkObjectId: primaryId })
+  }, [openPixelEditor, primaryId])
+
+  const openLinkedUvEditor = useCallback(() => {
+    setUvEditorOpen(true)
+  }, [setUvEditorOpen])
+
   if (!materialEditorOpen) return null
 
   return (
@@ -192,229 +230,197 @@ export function MaterialEditorPanel() {
       title="Material Editor"
       open={materialEditorOpen}
       state={materialEditorPanel}
-      minWidth={300}
-      minHeight={420}
+      minWidth={360}
+      minHeight={480}
       onClose={toggleMaterialEditor}
       onStateChange={setMaterialEditorPanel}
     >
       <div className="material-editor-panel">
-        <div className="mat-section">
-          <div className="mat-section-head">
-            <span>Color</span>
-            <button
-              type="button"
-              className={`mat-icon-btn${materialEditorEyedropperActive ? ' active' : ''}`}
-              title="Eyedropper — sample from screen or swatches"
-              onClick={runEyedropper}
-            >
-              ⌖
-            </button>
-          </div>
-          <ColorWheelPicker
-            color={materialEditorColor}
-            onChange={setMaterialEditorColorLive}
-            onCommit={commitMaterialEditorColor}
-            cancelEpoch={materialColorCancelEpoch}
-          />
-          <label className="mat-slider-row">
-            <span>Opacity</span>
-            <input
-              type="range"
-              min={0.05}
-              max={1}
-              step={0.01}
-              value={mat?.opacity ?? materialEditorColor[3]}
-              onChange={(e) => setMaterialOpacity(Number(e.target.value))}
-            />
-            <span>{Math.round((mat?.opacity ?? materialEditorColor[3]) * 100)}%</span>
-          </label>
-        </div>
-
-        <div className="mat-section">
-          <label className="mat-field-block">
-            <span>Palette</span>
-            <select
-              className="side-select shape-kind-select"
-              value={materialEditorPaletteId}
-              onChange={(e) => setMaterialEditorPaletteId(e.target.value)}
-            >
-              {paletteOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="mat-palette-grid">
-            {swatches.map((hex, i) => (
-              <button
-                key={`${hex}-${i}`}
-                type="button"
-                className="mat-palette-swatch"
-                data-mat-swatch
-                data-color={hex}
-                style={{ background: hex }}
-                title={hex}
-                onClick={() => commitMaterialEditorColor(hexToRgba4(hex, materialEditorColor[3]))}
-              />
-            ))}
-          </div>
-          <div className="mat-btn-row">
-            <button type="button" className="side-btn" onClick={() => addCustomPaletteSwatch()}>
-              + Swatch
-            </button>
-            <button type="button" className="side-btn" onClick={() => createCustomPalette()}>
-              + Palette
-            </button>
-          </div>
-          {materialEditorCustomPalettes.some((p) => p.id === materialEditorPaletteId) && (
-            <div className="mat-btn-row">
-              <button
-                type="button"
-                className="side-btn"
-                onClick={() => {
-                  const name = window.prompt('Palette name')
-                  if (name) renameCustomPalette(materialEditorPaletteId, name)
-                }}
-              >
-                Rename
-              </button>
-              <button
-                type="button"
-                className="side-btn"
-                onClick={() => deleteCustomPalette(materialEditorPaletteId)}
-              >
-                Delete palette
-              </button>
-            </div>
-          )}
-          <div className="mat-harmony-row">
-            {(['complementary', 'analogous', 'triadic', 'monochromatic'] as HarmonyScheme[]).map(
-              (scheme) => (
-                <button
-                  key={scheme}
-                  type="button"
-                  className="side-btn"
-                  onClick={() => generateMaterialHarmonyPalette(scheme)}
-                  title={`Generate ${scheme} palette from active color`}
-                >
-                  {scheme.slice(0, 4)}
-                </button>
-              )
+        <div className="mat-context-bar">
+          <div className="mat-context-main">
+            <span className="mat-context-label">{selectionSummary}</span>
+            {!hasSelection && (
+              <span className="mat-context-hint muted">Edits apply to new objects</span>
             )}
           </div>
-        </div>
-
-        <div className="mat-section">
-          <span className="mat-section-title">Gradient fill</span>
-          <p className="side-color-hint muted">
-            Drag the color stops on the preview to shape the gradient on your object.
-          </p>
-          <GradientLineEditor
-            start={materialEditorGradientStart}
-            end={materialEditorGradientEnd}
-            stops={materialEditorGradientStops}
-            activeStop={materialEditorGradientActiveStop}
-            radial={materialEditorGradientDirection === 'radial'}
-            disabled={!hasSelection}
-            onStartChange={(h) => setMaterialEditorGradientHandle(0, h)}
-            onEndChange={(h) => setMaterialEditorGradientHandle(1, h)}
-            onActiveStopChange={setMaterialEditorGradientActiveStop}
-            onDragBegin={beginMaterialEditorGradientDrag}
-            onDragEnd={commitMaterialEditorGradientDrag}
-          />
-          <label className="mat-field-block">
-            <span>Preset direction</span>
-            <select
-              className="side-select shape-kind-select"
-              value={materialEditorGradientDirection}
-              onChange={(e) =>
-                setMaterialEditorGradientDirection(e.target.value as GradientDirection)
-              }
-            >
-              <option value="x">World X</option>
-              <option value="y">World Y</option>
-              <option value="z">World Z</option>
-              <option value="radial">Radial</option>
-            </select>
-          </label>
-          <div className="mat-gradient-stops">
-            {materialEditorGradientStops.map((stop, i) => (
-              <label
-                key={i}
-                className={`mat-gradient-stop${materialEditorGradientActiveStop === i ? ' active' : ''}`}
-              >
-                <span>Stop {i + 1}</span>
-                <input
-                  type="color"
-                  value={rgba4ToHex(stop)}
-                  onFocus={() => setMaterialEditorGradientActiveStop(i as 0 | 1)}
-                  onChange={(e) =>
-                    setMaterialEditorGradientStop(i, hexToRgba4(e.target.value, stop[3]))
-                  }
-                />
-              </label>
-            ))}
-          </div>
-          <label className="side-checkbox">
-            <input
-              type="checkbox"
-              checked={materialEditorApplyToSelection}
-              onChange={(e) => setMaterialEditorApplyToSelection(e.target.checked)}
-            />
-            <span>Apply to current selection only</span>
-          </label>
           <button
             type="button"
-            className="side-btn side-btn-wide"
-            disabled={!hasSelection}
-            onClick={previewMaterialEditorGradient}
+            className={`mat-icon-btn${materialEditorEyedropperActive ? ' active' : ''}`}
+            title="Eyedropper — sample from screen or swatches"
+            onClick={() => void runEyedropper()}
           >
-            Re-apply gradient
+            ⌖
           </button>
         </div>
 
-        <div className="mat-section">
-          <span className="mat-section-title">Material mode</span>
+        <div className="mat-section mat-section-compact">
+          <span className="mat-section-title">Material type</span>
           <div className="mat-mode-row">
-            {(['solid', 'vertexGradient', 'texture'] as MaterialMode[]).map((mode) => (
+            {(['solid', 'vertexGradient', 'texture'] as MaterialMode[]).map((m) => (
               <button
-                key={mode}
+                key={m}
                 type="button"
-                className={`side-btn${mat?.mode === mode ? ' active' : ''}`}
-                disabled={!hasSelection}
-                onClick={() => setMaterialEditorMode(mode)}
+                className={`side-btn side-btn-wide${mode === m ? ' active' : ''}`}
+                disabled={!hasSelection && m !== 'solid'}
+                onClick={() => setMaterialEditorMode(m)}
               >
-                {mode === 'vertexGradient' ? 'Gradient' : mode === 'texture' ? 'Texture' : 'Solid'}
+                {MODE_LABELS[m]}
               </button>
             ))}
           </div>
-          {mat?.mode === 'texture' && (
-            <>
-              <p className="side-color-hint muted">
-                {textureInfo
-                  ? `Using texture: ${textureInfo.name} (${textureInfo.width}×${textureInfo.height})`
-                  : 'No texture on this object — import an image below.'}
-              </p>
-              <div className="mat-btn-row">
-                <button
-                  type="button"
-                  className="side-btn"
+        </div>
+
+        {(mode === 'solid' || mode === 'vertexGradient') && (
+          <>
+            <div className="mat-section">
+              <span className="mat-section-title">Color &amp; palette</span>
+              <ColorPickerSection
+                color={materialEditorColor}
+                paletteId={materialEditorPaletteId}
+                customPalettes={materialEditorCustomPalettes}
+                onChange={setMaterialEditorColorLive}
+                onCommit={commitMaterialEditorColor}
+                onPaletteIdChange={setMaterialEditorPaletteId}
+                onAddSwatch={addCustomPaletteSwatch}
+                onHarmony={(scheme) => generateMaterialHarmonyPalette(scheme)}
+                hintLabel="Active"
+              />
+              {materialEditorCustomPalettes.some((p) => p.id === materialEditorPaletteId) && (
+                <div className="mat-btn-row">
+                  <button
+                    type="button"
+                    className="side-btn"
+                    onClick={() => {
+                      const name = window.prompt('Palette name')
+                      if (name) renameCustomPalette(materialEditorPaletteId, name)
+                    }}
+                  >
+                    Rename palette
+                  </button>
+                  <button
+                    type="button"
+                    className="side-btn"
+                    onClick={() => deleteCustomPalette(materialEditorPaletteId)}
+                  >
+                    Delete
+                  </button>
+                  <button type="button" className="side-btn" onClick={() => createCustomPalette()}>
+                    + Palette
+                  </button>
+                </div>
+              )}
+              <label className="mat-slider-row">
+                <span>Opacity</span>
+                <input
+                  type="range"
+                  min={0.05}
+                  max={1}
+                  step={0.01}
+                  value={mat?.opacity ?? materialEditorColor[3]}
+                  onChange={(e) => setMaterialOpacity(Number(e.target.value))}
+                />
+                <span>{Math.round((mat?.opacity ?? materialEditorColor[3]) * 100)}%</span>
+              </label>
+            </div>
+
+            {mode === 'vertexGradient' && (
+              <div className="mat-section">
+                <span className="mat-section-title">Vertex gradient</span>
+                <p className="side-color-hint muted">
+                  Drag the stops to shape a world-space gradient on your mesh.
+                </p>
+                <GradientLineEditor
+                  start={materialEditorGradientStart}
+                  end={materialEditorGradientEnd}
+                  stops={materialEditorGradientStops}
+                  activeStop={materialEditorGradientActiveStop}
+                  radial={materialEditorGradientDirection === 'radial'}
                   disabled={!hasSelection}
-                  onClick={() => void importTexture()}
-                >
-                  Import texture…
-                </button>
+                  onStartChange={(h) => setMaterialEditorGradientHandle(0, h)}
+                  onEndChange={(h) => setMaterialEditorGradientHandle(1, h)}
+                  onActiveStopChange={setMaterialEditorGradientActiveStop}
+                  onDragBegin={beginMaterialEditorGradientDrag}
+                  onDragEnd={commitMaterialEditorGradientDrag}
+                />
+                <label className="mat-field-block">
+                  <span>Direction preset</span>
+                  <select
+                    className="side-select shape-kind-select"
+                    value={materialEditorGradientDirection}
+                    onChange={(e) =>
+                      setMaterialEditorGradientDirection(e.target.value as GradientDirection)
+                    }
+                  >
+                    <option value="x">World X</option>
+                    <option value="y">World Y</option>
+                    <option value="z">World Z</option>
+                    <option value="radial">Radial</option>
+                  </select>
+                </label>
+                <div className="mat-gradient-stops">
+                  {materialEditorGradientStops.map((stop, i) => (
+                    <label
+                      key={i}
+                      className={`mat-gradient-stop${materialEditorGradientActiveStop === i ? ' active' : ''}`}
+                    >
+                      <span>Stop {i + 1}</span>
+                      <input
+                        type="color"
+                        value={rgba4ToHex(stop)}
+                        onFocus={() => setMaterialEditorGradientActiveStop(i as 0 | 1)}
+                        onChange={(e) =>
+                          setMaterialEditorGradientStop(i, hexToRgba4(e.target.value, stop[3]))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+                <label className="side-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={materialEditorApplyToSelection}
+                    onChange={(e) => setMaterialEditorApplyToSelection(e.target.checked)}
+                  />
+                  <span>Apply to current selection only</span>
+                </label>
                 <button
                   type="button"
-                  className="side-btn"
-                  disabled={!hasSelection || !obj || mat.mode !== 'texture'}
-                  onClick={() => void exportTexture()}
+                  className="side-btn side-btn-wide"
+                  disabled={!hasSelection}
+                  onClick={previewMaterialEditorGradient}
                 >
-                  Export PNG
+                  Re-apply gradient
                 </button>
               </div>
-            </>
+            )}
+          </>
+        )}
+
+        {mode === 'texture' && mat && (
+          <div className="mat-section">
+            <span className="mat-section-title">Texture material</span>
+            <MaterialTextureSection
+              material={mat}
+              textureInfo={textureInfo}
+              pixelDoc={pixelDoc}
+              disabled={!hasSelection}
+              onImport={() => void importTexture()}
+              onExport={() => void exportTexture()}
+              onOpenPixelEditor={openLinkedPixelEditor}
+              onOpenUvEditor={openLinkedUvEditor}
+              onPatch={patchMaterialTextureSettings}
+            />
+          </div>
+        )}
+
+        <div className="mat-section">
+          <span className="mat-section-title">Surface</span>
+          {mat && (
+            <MaterialSurfaceSection
+              material={mat}
+              disabled={!hasSelection}
+              onPatch={patchMaterialSurfaceSettings}
+            />
           )}
           <label className="side-checkbox">
             <input
@@ -423,18 +429,9 @@ export function MaterialEditorPanel() {
               disabled={!hasSelection}
               onChange={(e) => setMaterialDoubleSided(e.target.checked)}
             />
-            <span>Double-sided</span>
+            <span>Double-sided (draw both face sides)</span>
           </label>
-          <p className="side-color-hint muted">
-            Double-sided materials render both sides of faces in the viewport.
-          </p>
         </div>
-
-        {!hasSelection && (
-          <p className="side-color-hint muted">
-            No selection — color changes set the default for new objects.
-          </p>
-        )}
       </div>
     </FloatingPanel>
   )

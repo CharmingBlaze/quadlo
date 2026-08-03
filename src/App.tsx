@@ -1,5 +1,7 @@
 import { useEffect, useCallback, lazy, Suspense, useState, useRef } from 'react'
 import './App.css'
+// Imported after App.css so the inspector's design layer wins the cascade.
+import './theme/sidePanelDesign.css'
 import { subscribeGraphicsNotice } from './rendering/webglContextNotice'
 import { ViewportLayout } from './components/ViewportLayout'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
@@ -485,6 +487,18 @@ export default function App() {
             const activeView = state.viewportSlotViews[hoverIndex] || 'perspective'
             state.beginMeshModal(
               'bevel',
+              lastMousePosRef.current.x,
+              lastMousePosRef.current.y,
+              activeView
+            )
+            return
+          }
+          if (e.key === 'i' || e.key === 'I') {
+            e.preventDefault()
+            const hoverIndex = state.hoveredViewportSlot ?? 0
+            const activeView = state.viewportSlotViews[hoverIndex] || 'perspective'
+            state.beginMeshModal(
+              'inset',
               lastMousePosRef.current.x,
               lastMousePosRef.current.y,
               activeView

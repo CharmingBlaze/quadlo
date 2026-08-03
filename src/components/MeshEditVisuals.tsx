@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useRef } from 'react'
-import { Line } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { SceneObject } from '../mesh/HalfEdgeMesh'
@@ -202,7 +202,7 @@ function EdgeHighlight({
   const opacity = state === 'idle' ? 0.55 : 0.98
 
   return (
-    <Line
+    <ViewportLine
       points={[
         [pa.x, pa.y, pa.z],
         [pb.x, pb.y, pb.z],

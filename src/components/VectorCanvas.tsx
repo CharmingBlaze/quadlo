@@ -1,13 +1,16 @@
 import { useMemo, useEffect } from 'react'
-import { Line } from '@react-three/drei'
+import { useFrame, useThree } from '@react-three/fiber'
+import { ViewportLine } from './ViewportLine'
 import { useShallow } from 'zustand/react/shallow'
 import * as THREE from 'three'
 import { useAppStore, type ViewType } from '../store/appStore'
 import { planeToStroke3D } from '../utils/screenToWorld'
+import type { StrokePlaneFrame } from '../stroke/worldProjection'
 import { shapeDraftOutline } from '../vector/shapeDraftGeometry'
 import { pathEndpoints } from '../vector/autoConnect'
 import { generateShapeMesh } from '../mesh/lowPolyPrimitives'
 import { projectMeshToView } from '../stroke/worldProjection'
+import { finalizePerspectiveProjectedShapeMesh } from '../mesh/meshWinding'
 import { PenVisuals } from './PenVisuals'
 import { VectorPenVolumePreview } from './VectorPenVolumePreview'
 import { useTheme } from '../theme/useTheme'
@@ -20,10 +23,11 @@ interface VectorCanvasProps {
 function toLine(
   pts: { x: number; y: number }[],
   view: ViewType,
-  depth: number
+  depth: number,
+  planeFrame?: StrokePlaneFrame | null
 ): [number, number, number][] {
   return pts.map((p) => {
-    const v = planeToStroke3D(p.x, p.y, view, depth)
+    const v = planeToStroke3D(p.x, p.y, view, depth, planeFrame)
     return [v.x, v.y, v.z] as [number, number, number]
   })
 }
@@ -33,6 +37,7 @@ export function VectorCanvas({ view }: VectorCanvasProps) {
   const {
     vectorDraft,
     vectorDraftView,
+    vectorDraftPlane,
     vectorIsDrawing,
     vectorPenDraft,
     activeTool,
@@ -51,6 +56,7 @@ export function VectorCanvas({ view }: VectorCanvasProps) {
     useShallow((s) => ({
       vectorDraft: s.vectorDraft,
       vectorDraftView: s.vectorDraftView,
+      vectorDraftPlane: s.vectorDraftPlane,
       vectorIsDrawing: s.vectorIsDrawing,
       vectorPenDraft: s.vectorPenDraft,
       activeTool: s.activeTool,
@@ -82,13 +88,15 @@ export function VectorCanvas({ view }: VectorCanvasProps) {
   const shapeLine = useMemo(() => {
     if (!vectorIsDrawing || vectorDraftView !== view || vectorDraft.length < 2) return null
     if (activeTool !== 'vector-shape') return null
+    if (vectorDraftView === 'perspective' && !vectorDraftPlane) return null
     if (activeShapeKind === 'roundedBox') return null
     const a = vectorDraft[0]
     const b = vectorDraft[vectorDraft.length - 1]
-    return toLine(shapeDraftOutline(activeShapeKind, a, b), view, defaultDepth)
+    return toLine(shapeDraftOutline(activeShapeKind, a, b), view, defaultDepth, vectorDraftPlane)
   }, [
     vectorIsDrawing,
     vectorDraftView,
+    vectorDraftPlane,
     view,
     vectorDraft,
     activeTool,
@@ -106,6 +114,7 @@ export function VectorCanvas({ view }: VectorCanvasProps) {
     ) {
       return null
     }
+    if (vectorDraftView === 'perspective' && !vectorDraftPlane) return null
     const a = vectorDraft[0]
     const b = vectorDraft[vectorDraft.length - 1]
     const mesh = generateShapeMesh(
@@ -117,7 +126,10 @@ export function VectorCanvas({ view }: VectorCanvasProps) {
       { roundness: roundedBoxRoundness, subdivisions: roundedBoxSubdivisions }
     )
     if (!mesh) return null
-    projectMeshToView(mesh, view, defaultDepth)
+    projectMeshToView(mesh, view, defaultDepth, vectorDraftPlane)
+    if (view === 'perspective' && vectorDraftPlane) {
+      finalizePerspectiveProjectedShapeMesh(mesh, vectorDraftPlane)
+    }
     const data = mesh.toMeshData(true, 0)
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3))
@@ -127,6 +139,7 @@ export function VectorCanvas({ view }: VectorCanvasProps) {
   }, [
     vectorIsDrawing,
     vectorDraftView,
+    vectorDraftPlane,
     view,
     vectorDraft,
     activeTool,
@@ -156,47 +169,77 @@ export function VectorCanvas({ view }: VectorCanvasProps) {
   const showFillPreview =
     strokeMode === 'outline' || strokeMode === 'blob' || strokeMode === 'capsule' || extrudeOn
 
-  if (roundedBoxPreviewGeometry) {
-    return (
-      <mesh geometry={roundedBoxPreviewGeometry} renderOrder={21}>
-        <meshStandardMaterial
-          color={activeColor}
-          transparent
-          opacity={0.42}
-          side={THREE.DoubleSide}
-          depthWrite={false}
-        />
-      </mesh>
-    )
+  const invalidate = useThree((s) => s.invalidate)
+  const penPreviewActive =
+    (activeTool === 'vector-pen' || vectorPenDraft != null) &&
+    vectorPenDraft?.view === view
+  const vectorShapePreviewActive =
+    activeTool === 'vector-shape' &&
+    vectorIsDrawing &&
+    vectorDraftView === view &&
+    !(vectorDraftView === 'perspective' && !vectorDraftPlane)
+
+  useFrame(() => {
+    if (penPreviewActive || vectorShapePreviewActive) invalidate()
+  })
+
+  const overlayLine = {
+    depthTest: false as const,
+    depthWrite: false as const,
+    toneMapped: false as const,
+    transparent: true as const,
   }
 
-  if (shapeLine && shapeLine.length >= 2) {
-    return (
-      <Line
-        points={shapeLine}
-        color={color}
-        lineWidth={2}
-        transparent
-        opacity={0.85}
-      />
-    )
-  }
+  const showPen =
+    (activeTool === 'vector-pen' || vectorPenDraft != null) &&
+    vectorPenDraft != null &&
+    vectorPenDraft.view === view &&
+    !(vectorPenDraft.view === 'perspective' && !vectorPenDraft.planeFrame)
 
-  if (activeTool !== 'vector-pen' && !vectorPenDraft) return null
+  if (
+    !roundedBoxPreviewGeometry &&
+    !(shapeLine && shapeLine.length >= 2) &&
+    !showPen &&
+    !(activeTool === 'vector-pen' && snapLine)
+  ) {
+    return null
+  }
 
   return (
     <>
-      <VectorPenVolumePreview view={view} />
+      {roundedBoxPreviewGeometry && (
+        <mesh geometry={roundedBoxPreviewGeometry} renderOrder={21}>
+          <meshStandardMaterial
+            color={activeColor}
+            transparent
+            opacity={0.42}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
+      {shapeLine && shapeLine.length >= 2 && (
+        <ViewportLine
+          points={shapeLine}
+          color={color}
+          lineWidth={2}
+          opacity={0.85}
+          renderOrder={24}
+          {...overlayLine}
+        />
+      )}
+      {showPen && <VectorPenVolumePreview view={view} />}
       {activeTool === 'vector-pen' && snapLine && (
-        <Line
+        <ViewportLine
           points={snapLine}
           color={accentGreen}
           lineWidth={3}
-          transparent
           opacity={0.75}
+          renderOrder={22}
+          {...overlayLine}
         />
       )}
-      {vectorPenDraft && vectorPenDraft.view === view && (
+      {showPen && vectorPenDraft && (
         <PenVisuals
           draft={vectorPenDraft}
           view={view}

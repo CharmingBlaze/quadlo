@@ -77,7 +77,6 @@ import {
   DEFORM_TOOLS,
   MESH_EDIT_TOOLS,
   SCULPT_TOOLS,
-  TRANSFORM_GIZMO_TOOLS,
   beginCameraPlaneDrag,
   canDragComponentSelection,
   canPickComponentSelection,
@@ -88,12 +87,18 @@ import {
   isComponentSelectionMode,
   isHitInMeshSelection,
   pickPixelOnTexturedMesh,
-  isViewportLmbToolOwner,
+  ownsViewportLeftButton,
   shouldDeferViewportClickToOrbit,
   VIEWPORT_CLICK_DRAG_THRESHOLD_PX,
   type ComponentDragState,
   type ObjectDragState,
 } from '../viewport/viewportInteractionUtils'
+import {
+  growPaintBounds,
+  paintBoundsToRect,
+  type PaintBounds,
+} from '../pixel/paintBounds'
+import type { PaintPoint as PaintSample } from '../pixel/pixelPaint'
 import {
   requestCameraNavigationReset,
   setViewportLeftButtonBlocked,
@@ -148,6 +153,8 @@ export function useViewportPointerHandlers({
     lastY: number
     hint: MeshPickHint | null
     lastHit: MeshSurfaceUvHit
+    /** Texel bounds touched so far, so the seam bleed pass stays local. */
+    bounds: PaintBounds | null
   } | null>(null)
   const pixelShapeRef = useRef<{
     docId: string
@@ -880,7 +887,10 @@ export function useViewportPointerHandlers({
 
       if (
         e.button === 0 &&
-        !isViewportLmbToolOwner(store.activeTool) &&
+        !ownsViewportLeftButton(
+          store.activeTool,
+          store.pixelEditorOpen && store.pixelEditorPaintOnModel
+        ) &&
         shouldDeferViewportClickToOrbit(
           view,
           store.activeTool,
@@ -1090,6 +1100,7 @@ export function useViewportPointerHandlers({
                 triIndex: hit.triIndex,
               },
               lastHit: hit,
+              bounds: growPaintBounds(null, [px]),
             }
             return
           }
@@ -1363,10 +1374,27 @@ export function useViewportPointerHandlers({
         return
       }
 
-      const pt = getPlanePoint(e)
-      if (!pt) return
+      if (activeTool === 'vector-shape') {
+        e.preventDefault()
+        e.stopPropagation()
+        claimLmbForViewportDrag(e)
+        vectorGestureViewRef.current = view
+        if (view === 'perspective') {
+          const frame = beginPerspectiveStrokeFrame()
+          if (!frame) return
+          const drawPt = getDrawPlanePoint(e, frame)
+          if (!drawPt) return
+          startVectorStroke(drawPt, view, frame)
+        } else {
+          const planePt = getPlanePoint(e)
+          if (!planePt) return
+          startVectorStroke(planePt, view)
+        }
+        e.currentTarget.setPointerCapture(e.pointerId)
+        return
+      }
 
-      if (activeTool === 'vector-pen' && view !== 'perspective') {
+      if (activeTool === 'vector-pen') {
         // Double-click finalizes like Enter (Illustrator-style).
         if (e.detail >= 2) {
           const draft = useAppStore.getState().vectorPenDraft
@@ -1382,18 +1410,36 @@ export function useViewportPointerHandlers({
             return
           }
         }
+        e.preventDefault()
+        e.stopPropagation()
+        claimLmbForViewportDrag(e)
         vectorGestureViewRef.current = view
-        penPointerDown(pt, view)
+        if (view === 'perspective') {
+          const existing = useAppStore.getState().vectorPenDraft
+          const frame =
+            (existing?.view === 'perspective' ? existing.planeFrame : null) ??
+            beginPerspectiveStrokeFrame()
+          if (!frame) return
+          const drawPt = getDrawPlanePoint(e, frame)
+          if (!drawPt) return
+          penPointerDown(drawPt, view, frame)
+        } else {
+          const planePt = getPlanePoint(e)
+          if (!planePt) return
+          penPointerDown(planePt, view)
+        }
+        e.currentTarget.setPointerCapture(e.pointerId)
         return
       }
 
-      if (activeTool === 'vector-shape' && view !== 'perspective') {
-        vectorGestureViewRef.current = view
-        startVectorStroke(pt, view)
-        return
-      }
+      const pt = getPlanePoint(e)
+      if (!pt) return
 
       if (DRAW_TOOLS.includes(activeTool)) {
+        e.preventDefault()
+        e.stopPropagation()
+        claimLmbForViewportDrag(e)
+        beginPointerInteraction()
         if (view === 'perspective') {
           const frame = beginPerspectiveStrokeFrame()
           if (!frame) return
@@ -1407,6 +1453,7 @@ export function useViewportPointerHandlers({
           strokeGestureViewRef.current = view
           startStroke(pt, view)
         }
+        e.currentTarget.setPointerCapture(e.pointerId)
         {
           const s = useAppStore.getState()
           if (s.sketchExtrudeMode || s.penExtrudeMode) {
@@ -1470,6 +1517,7 @@ export function useViewportPointerHandlers({
       tryBeginMeshSelectionDrag,
       commitHistory,
       beginPointerInteraction,
+      claimLmbForViewportDrag,
       resolveKnifeHit,
       knifeAddPoint,
       knifeApply,
@@ -1648,8 +1696,12 @@ export function useViewportPointerHandlers({
               e.clientY,
               step
             )
-            const runs: { points: { x: number; y: number }[]; restart: boolean }[] = []
-            let run = { points: [] as { x: number; y: number }[], restart: false }
+            // Pen events report 0-1; mouse reports 0.5 while held, which would
+            // halve every stroke, so only trust a real pen/touch pointer.
+            const pressure =
+              e.pointerType === 'mouse' ? undefined : (e.pressure > 0 ? e.pressure : undefined)
+            const runs: { points: PaintSample[]; restart: boolean }[] = []
+            let run = { points: [] as PaintSample[], restart: false }
             runs.push(run)
             let hint = paint.hint
             let previousHit: MeshSurfaceUvHit | null = paint.lastHit
@@ -1658,7 +1710,10 @@ export function useViewportPointerHandlers({
                 run = { points: [], restart: true }
                 runs.push(run)
               }
-              run.points.push(uvToPixelCoords(anchor.uv, doc.width, doc.height))
+              run.points.push({
+                ...uvToPixelCoords(anchor.uv, doc.width, doc.height),
+                pressure,
+              })
               previousHit = anchor
               hint = {
                 objectId: anchor.objectId,
@@ -1675,7 +1730,10 @@ export function useViewportPointerHandlers({
                 run = { points: [], restart: true }
                 runs.push(run)
               }
-              run.points.push(uvToPixelCoords(h.uv, doc.width, doc.height))
+              run.points.push({
+                ...uvToPixelCoords(h.uv, doc.width, doc.height),
+                pressure,
+              })
               previousHit = h
               hint = {
                 objectId: h.objectId,
@@ -1683,9 +1741,11 @@ export function useViewportPointerHandlers({
                 triIndex: h.triIndex,
               }
             }
+            let bounds = paint.bounds
             for (const segment of runs) {
               const points = segment.points
               if (points.length === 0) continue
+              bounds = growPaintBounds(bounds, points)
               // Commit texels immediately so both the Pixel Editor canvas and the
               // shared texture buffer change during this pointer event. GPU work
               // remains safely coalesced by pixelPreview.
@@ -1704,6 +1764,7 @@ export function useViewportPointerHandlers({
               lastY: e.clientY,
               hint,
               lastHit: previousHit ?? paint.lastHit,
+              bounds,
             }
           }
         }
@@ -1934,22 +1995,33 @@ export function useViewportPointerHandlers({
 
       if (
         store.activeTool === 'vector-pen' &&
-        view !== 'perspective' &&
         store.vectorPenDraft?.view === view
       ) {
-        const pt = getPlanePoint(e)
-        if (pt) penPointerMove(pt, { altKey: e.altKey })
+        e.preventDefault()
+        e.stopPropagation()
+        const drawPt =
+          view === 'perspective'
+            ? getDrawPlanePoint(e, store.vectorPenDraft.planeFrame)
+            : getPlanePoint(e)
+        if (drawPt) penPointerMove(drawPt, { altKey: e.altKey })
         return
       }
 
       if (
         store.activeTool === 'vector-shape' &&
-        view !== 'perspective' &&
         draftView === view &&
         store.vectorIsDrawing
       ) {
-        const pt = getPlanePoint(e)
-        if (pt) continueVectorStroke(pt)
+        e.preventDefault()
+        e.stopPropagation()
+        const drawPt =
+          view === 'perspective'
+            ? getDrawPlanePoint(e, store.vectorDraftPlane)
+            : getPlanePoint(e)
+        if (!drawPt) return
+        if ((e.buttons & 1) === 1) {
+          continueVectorStroke(drawPt)
+        }
         return
       }
 
@@ -1977,6 +2049,8 @@ export function useViewportPointerHandlers({
         strokeView === view &&
         store.isDrawing
       ) {
+        e.preventDefault()
+        e.stopPropagation()
         const drawPt = getDrawPlanePoint(e)
         if (!drawPt) return
         if ((store.sketchExtrudeMode || store.penExtrudeMode) && store.extrudeDragAnchor) {
@@ -2121,6 +2195,13 @@ export function useViewportPointerHandlers({
         return
       }
       if (pixelPaintRef.current) {
+        const paint = pixelPaintRef.current
+        // Pad island edges before the undo entry closes, so a single undo takes
+        // the bleed with it rather than leaving orphaned padding behind.
+        store.applySeamBleed(
+          paint.docId,
+          paintBoundsToRect(paint.bounds, store.pixelEditorBrushSize)
+        )
         store.commitPixelEdit()
         pixelPaintRef.current = null
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -2279,8 +2360,11 @@ export function useViewportPointerHandlers({
         e.button === 0 &&
         storeAtUp.vectorPenDraft?.view === view
       ) {
-        const pt = getPlanePoint(e)
-        if (pt) penPointerUp(pt, { altKey: e.altKey })
+        const drawPt =
+          view === 'perspective'
+            ? getDrawPlanePoint(e, storeAtUp.vectorPenDraft.planeFrame)
+            : getPlanePoint(e)
+        if (drawPt) penPointerUp(drawPt, { altKey: e.altKey })
       } else if (
         storeAtUp.activeTool === 'primitive-box' &&
         e.button === 0 &&
@@ -2357,6 +2441,7 @@ export function useViewportPointerHandlers({
       penPointerUp,
       primitiveBoxPointerUp,
       getPlanePoint,
+      getDrawPlanePoint,
       getGroundPoint,
       objects,
       selectionObjectIds,

@@ -1,12 +1,15 @@
-import { useEffect, useMemo } from 'react'
-import { Billboard, Line } from '@react-three/drei'
+import { useEffect, useMemo, useRef } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
+import { ViewportLine } from './ViewportLine'
 import * as THREE from 'three'
 import type { ViewType, StrokeMode } from '../store/appStore'
 import { planeToStroke3D } from '../utils/screenToWorld'
+import type { StrokePlaneFrame } from '../stroke/worldProjection'
 import { sampleAnchors, handleSegments } from '../vector/bezier'
 import type { VectorAnchor } from '../vector/types'
 import type { VectorPenDraft } from '../store/appStore'
 import { useTheme } from '../theme/useTheme'
+import { worldUnitsForScreenPixels } from '../utils/screenScale'
 
 interface PenThemeColors {
   stroke: string
@@ -19,57 +22,59 @@ interface PenThemeColors {
   closeTargetFill: string
 }
 
-function toWorld(
+function toWorldTuple(
   p: { x: number; y: number },
   view: ViewType,
-  depth: number
-): THREE.Vector3 {
-  const v = planeToStroke3D(p.x, p.y, view, depth)
-  return new THREE.Vector3(v.x, v.y, v.z)
+  depth: number,
+  planeFrame?: StrokePlaneFrame | null
+): [number, number, number] {
+  const w = planeToStroke3D(p.x, p.y, view, depth, planeFrame)
+  return [w.x, w.y, w.z]
 }
 
-function AnchorSquare({
+function PenPointMarker({
   position,
-  view,
-  depth,
-  highlight,
-  closeTarget,
-  colors,
+  fill,
+  stroke,
+  sizePx,
+  fillOpacity = 0.95,
 }: {
-  position: { x: number; y: number }
-  view: ViewType
-  depth: number
-  highlight?: boolean
-  closeTarget?: boolean
-  colors: PenThemeColors
+  position: [number, number, number]
+  fill: string
+  stroke: string
+  sizePx: number
+  fillOpacity?: number
 }) {
-  const world = useMemo(() => toWorld(position, view, depth), [position, view, depth])
-  const size = closeTarget ? 5.5 : highlight ? 4.8 : 4
-  const color = closeTarget ? colors.closeRing : colors.anchorStroke
+  const rootRef = useRef<THREE.Group>(null)
+  const worldRef = useRef(new THREE.Vector3())
+  const { camera, size } = useThree()
 
-  const planeGeo = useMemo(() => new THREE.PlaneGeometry(size, size), [size])
-  const edgesGeo = useMemo(() => new THREE.EdgesGeometry(planeGeo), [planeGeo])
-  useEffect(
-    () => () => {
-      planeGeo.dispose()
-      edgesGeo.dispose()
-    },
-    [planeGeo, edgesGeo]
-  )
+  useFrame(() => {
+    const root = rootRef.current
+    if (!root) return
+    root.quaternion.copy(camera.quaternion)
+    const world = worldRef.current.set(position[0], position[1], position[2])
+    root.scale.setScalar(worldUnitsForScreenPixels(camera, world, sizePx, size.height))
+  })
 
   return (
-    <Billboard position={world}>
-      <mesh geometry={planeGeo}>
+    <group ref={rootRef} position={position} renderOrder={26}>
+      <mesh position={[0, 0, -0.01]}>
+        <planeGeometry args={[1.05, 1.05]} />
+        <meshBasicMaterial color={stroke} depthTest={false} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh>
+        <planeGeometry args={[0.72, 0.72]} />
         <meshBasicMaterial
-          color={closeTarget ? colors.closeTargetFill : colors.anchorFill}
+          color={fill}
           transparent
-          opacity={closeTarget ? 0.35 : 0.95}
+          opacity={fillOpacity}
+          depthTest={false}
+          depthWrite={false}
+          toneMapped={false}
         />
       </mesh>
-      <lineSegments geometry={edgesGeo}>
-        <lineBasicMaterial color={color} linewidth={closeTarget ? 2 : 1} />
-      </lineSegments>
-    </Billboard>
+    </group>
   )
 }
 
@@ -77,19 +82,57 @@ function HandleDot({
   position,
   view,
   depth,
+  planeFrame,
   color,
 }: {
   position: { x: number; y: number }
   view: ViewType
   depth: number
+  planeFrame?: StrokePlaneFrame | null
   color: string
 }) {
-  const world = useMemo(() => toWorld(position, view, depth), [position, view, depth])
+  const world = useMemo(
+    () => toWorldTuple(position, view, depth, planeFrame),
+    [position, view, depth, planeFrame]
+  )
   return (
-    <mesh position={world}>
-      <sphereGeometry args={[1.2, 8, 8]} />
-      <meshBasicMaterial color={color} transparent opacity={0.95} />
-    </mesh>
+    <PenPointMarker position={world} fill={color} stroke="#11151c" sizePx={6} fillOpacity={0.98} />
+  )
+}
+
+function AnchorSquare({
+  position,
+  view,
+  depth,
+  planeFrame,
+  highlight,
+  closeTarget,
+  colors,
+}: {
+  position: { x: number; y: number }
+  view: ViewType
+  depth: number
+  planeFrame?: StrokePlaneFrame | null
+  highlight?: boolean
+  closeTarget?: boolean
+  colors: PenThemeColors
+}) {
+  const world = useMemo(
+    () => toWorldTuple(position, view, depth, planeFrame),
+    [position, view, depth, planeFrame]
+  )
+  const sizePx = closeTarget ? 13 : highlight ? 11 : 10
+  const fill = closeTarget ? colors.closeTargetFill : colors.anchorFill
+  const stroke = closeTarget ? colors.closeRing : colors.anchorStroke
+
+  return (
+    <PenPointMarker
+      position={world}
+      fill={fill}
+      stroke={stroke}
+      sizePx={sizePx}
+      fillOpacity={closeTarget ? 0.35 : 0.95}
+    />
   )
 }
 
@@ -97,12 +140,14 @@ function FillPreview({
   anchors,
   view,
   depth,
+  planeFrame,
   closed,
   fillColor,
 }: {
   anchors: VectorAnchor[]
   view: ViewType
   depth: number
+  planeFrame?: StrokePlaneFrame | null
   closed: boolean
   fillColor: string
 }) {
@@ -123,13 +168,13 @@ function FillPreview({
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i)
       const y = pos.getY(i)
-      const w = planeToStroke3D(x, y, view, depth)
+      const w = planeToStroke3D(x, y, view, depth, planeFrame)
       pos.setXYZ(i, w.x, w.y, w.z)
     }
     pos.needsUpdate = true
     geo.computeVertexNormals()
     return geo
-  }, [anchors, view, depth, closed])
+  }, [anchors, view, depth, planeFrame, closed])
 
   useEffect(
     () => () => {
@@ -171,6 +216,8 @@ export function PenVisuals({
   strokeMode,
 }: PenVisualsProps) {
   const theme = useTheme()
+  const invalidate = useThree((s) => s.invalidate)
+  const planeFrame = draft.planeFrame ?? null
   const colors: PenThemeColors = {
     stroke: theme.accent,
     handleLine: theme.textMuted,
@@ -202,46 +249,71 @@ export function PenVisuals({
       }
     }
     return pts.map((p) => {
-      const w = planeToStroke3D(p.x, p.y, view, depth)
+      const w = planeToStroke3D(p.x, p.y, view, depth, planeFrame)
       return [w.x, w.y, w.z] as [number, number, number]
     })
-  }, [draft, view, depth])
+  }, [draft, view, depth, planeFrame])
 
   const handleLines = useMemo(() => handleSegments(draft.anchors), [draft.anchors])
   const pendingIndex = draft.pendingAnchorIndex
+
+  useFrame(() => {
+    if (draft.view === view) invalidate()
+  })
+
+  const overlayLine = {
+    depthTest: false as const,
+    depthWrite: false as const,
+    toneMapped: false as const,
+    transparent: true as const,
+  }
 
   // Flat fill stays 2D; volumetric Extrude/Hair/Sweep uses VectorPenVolumePreview.
   const showFillPreviewBlob =
     showFillPreview && strokeMode === 'blob' && !extrudeMode && draft.anchors.length >= 3
 
+  // Perspective drafts without a locked plane have nowhere correct to draw.
+  if (view === 'perspective' && !planeFrame) return null
+
   return (
-    <group>
+    <group renderOrder={24}>
       {showFillPreviewBlob && (
         <FillPreview
           anchors={draft.anchors}
           view={view}
           depth={depth}
+          planeFrame={planeFrame}
           closed={draft.closed || draft.closeTargetActive}
           fillColor={colors.fillPreview}
         />
       )}
 
       {curvePoints.length >= 2 && (
-        <Line
-          key={draft.closed ? 'pen-closed' : draft.closeTargetActive ? 'pen-closing' : 'pen-open'}
-          points={curvePoints}
-          color={colors.stroke}
-          lineWidth={1.75}
-          transparent
-          opacity={0.95}
-        />
+        <>
+          <ViewportLine
+            points={curvePoints}
+            color="#10141a"
+            lineWidth={3.5}
+            opacity={0.62}
+            renderOrder={24}
+            {...overlayLine}
+          />
+          <ViewportLine
+            points={curvePoints}
+            color={colors.stroke}
+            lineWidth={2}
+            opacity={0.98}
+            renderOrder={25}
+            {...overlayLine}
+          />
+        </>
       )}
 
       {handleLines.map(([a, b], i) => {
-        const wa = planeToStroke3D(a.x, a.y, view, depth)
-        const wb = planeToStroke3D(b.x, b.y, view, depth)
+        const wa = planeToStroke3D(a.x, a.y, view, depth, planeFrame)
+        const wb = planeToStroke3D(b.x, b.y, view, depth, planeFrame)
         return (
-          <Line
+          <ViewportLine
             key={`hl-${i}`}
             points={[
               [wa.x, wa.y, wa.z],
@@ -249,8 +321,9 @@ export function PenVisuals({
             ]}
             color={colors.handleLine}
             lineWidth={1}
-            transparent
-            opacity={0.8}
+            opacity={0.85}
+            renderOrder={23}
+            {...overlayLine}
           />
         )
       })}
@@ -258,15 +331,28 @@ export function PenVisuals({
       {draft.anchors.map((anchor, i) => (
         <group key={anchor.id}>
           {anchor.inHandle && (
-            <HandleDot position={anchor.inHandle} view={view} depth={depth} color={colors.handleDot} />
+            <HandleDot
+              position={anchor.inHandle}
+              view={view}
+              depth={depth}
+              planeFrame={planeFrame}
+              color={colors.handleDot}
+            />
           )}
           {anchor.outHandle && (
-            <HandleDot position={anchor.outHandle} view={view} depth={depth} color={colors.handleDot} />
+            <HandleDot
+              position={anchor.outHandle}
+              view={view}
+              depth={depth}
+              planeFrame={planeFrame}
+              color={colors.handleDot}
+            />
           )}
           <AnchorSquare
             position={anchor.position}
             view={view}
             depth={depth}
+            planeFrame={planeFrame}
             highlight={pendingIndex === i}
             closeTarget={
               (draft.closed || draft.closeTargetActive) && i === 0 && draft.anchors.length >= 3

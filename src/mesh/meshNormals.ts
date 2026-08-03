@@ -67,9 +67,8 @@ export function getVertexNormalFromHalfEdges(
   let first: Vec3 | null = null
   const seen = new Set<number>()
 
-  for (let i = 0; i < mesh.halfEdges.length; i++) {
+  for (const i of mesh.outgoingHalfEdges(vi)) {
     const he = mesh.halfEdges[i]!
-    if (he.origin !== vi) continue
     if (seen.has(he.face)) continue
     seen.add(he.face)
     const face = mesh.faces[he.face]

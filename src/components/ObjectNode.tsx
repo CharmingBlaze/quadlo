@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, type RefObject } from 'react'
+import { memo, useEffect, useMemo, useRef, type RefObject } from 'react'
 import { ThemedTransformControls } from './ThemedTransformControls'
 import { useThree } from '@react-three/fiber'
 import type * as THREE from 'three'
@@ -6,17 +6,64 @@ import { useAppStore, type SelectionMode } from '../store/appStore'
 import { ensureTransform, getObjectPivot, cloneTransform, transformFromObject3D, transformsEqual } from '../mesh/objectTransform'
 import { registerPickTarget, unregisterPickTarget } from '../select/pickRegistry'
 import { useViewportSlotIndex } from './viewport/ViewportRuntimeContext'
-import { MeshRenderer } from './MeshRenderer'
+import { MeshRenderer, buildObjectSelectionBoundsGeometry } from './MeshRenderer'
 import { MeshEditVisuals } from './MeshEditVisuals'
 import { NormalVisuals } from './NormalVisuals'
+import { SeamVisuals } from './SeamVisuals'
 import type { SceneObject } from '../mesh/HalfEdgeMesh'
 import type { ViewportDisplayMode } from '../rendering/viewportDisplay'
 import { VIEWPORT_DISPLAY_CONFIG } from '../rendering/viewportDisplay'
 import { showsObjectTransformGizmo, toolToGizmoMode } from '../viewport/viewportInteractionUtils'
 import { useGizmoVisible, useTransformGizmoSettings } from '../hooks/useTransformGizmoSettings'
+import { useTheme } from '../theme/useTheme'
 
 function isComponentSelectionMode(mode: SelectionMode): boolean {
   return mode === 'vertex' || mode === 'edge' || mode === 'face'
+}
+
+/** World-axis-aligned bounds cage — stays upright and refits when the object rotates. */
+function ObjectSelectionOutline({
+  object,
+  isPrimary,
+}: {
+  object: SceneObject
+  isPrimary: boolean
+}) {
+  const { objectSelectOutline, objectSelectOutlineSecondary } = useTheme()
+  const tr = ensureTransform(object)
+  const geometry = useMemo(
+    () => buildObjectSelectionBoundsGeometry(object),
+    [
+      object.positions,
+      object.pivot?.x,
+      object.pivot?.y,
+      object.pivot?.z,
+      tr.position.x,
+      tr.position.y,
+      tr.position.z,
+      tr.rotation.x,
+      tr.rotation.y,
+      tr.rotation.z,
+      tr.scale.x,
+      tr.scale.y,
+      tr.scale.z,
+    ]
+  )
+
+  useEffect(() => () => geometry.dispose(), [geometry])
+
+  return (
+    <lineSegments geometry={geometry} renderOrder={8} raycast={() => null}>
+      <lineBasicMaterial
+        color={isPrimary ? objectSelectOutline : objectSelectOutlineSecondary}
+        transparent
+        opacity={isPrimary ? 1 : 0.86}
+        depthTest
+        depthWrite={false}
+        toneMapped={false}
+      />
+    </lineSegments>
+  )
 }
 
 interface ObjectNodeProps {
@@ -29,6 +76,22 @@ interface ObjectNodeProps {
   selectionMode: SelectionMode
   viewportDisplayMode: ViewportDisplayMode
   viewportXRay: boolean
+}
+
+/**
+ * Seams stay visible independent of selection mode so they can be reviewed
+ * while unwrapping, but only while the UV editor is the active workflow.
+ */
+function ObjectSeamOverlay({
+  object,
+  cullBackfaces,
+}: {
+  object: SceneObject
+  cullBackfaces: boolean
+}) {
+  const showSeams = useAppStore((s) => s.uvEditorOpen && s.uvEditorShowSeams)
+  if (!showSeams || !object.seamEdges?.length) return null
+  return <SeamVisuals object={object} cullBackfaces={cullBackfaces} />
 }
 
 function ObjectMeshEditOverlay({
@@ -175,6 +238,8 @@ function ObjectNodeInner({
   const pivot = getObjectPivot(object)
   const showObjectGizmo =
     isGizmoTarget && isSelected && selectionMode === 'object' && !pixelPaintFocus
+  const showSelectionOutline =
+    !pixelPaintFocus && isSelected && selectionMode === 'object' && !isDrawing
 
   useEffect(() => {
     const g = rootRef.current
@@ -198,10 +263,6 @@ function ObjectNodeInner({
           <MeshRenderer
             object={object}
             isSelected={isSelected}
-            isPrimary={isPrimary}
-            objectSelectionOutline={
-              pixelPaintFocus || (isSelected && selectionMode === 'object' && !isDrawing)
-            }
             paintFocus={pixelPaintFocus}
             facetExaggeration={facetExaggeration}
             showDensityHeatmap={showDensityHeatmap}
@@ -216,8 +277,13 @@ function ObjectNodeInner({
               showNormals={VIEWPORT_DISPLAY_CONFIG[viewportDisplayMode].showNormals}
             />
           )}
+          <ObjectSeamOverlay object={object} cullBackfaces={!viewportXRay} />
         </group>
       </group>
+
+      {showSelectionOutline && (
+        <ObjectSelectionOutline object={object} isPrimary={isPrimary} />
+      )}
 
       {showObjectGizmo && (
         <ObjectTransformGizmo object={object} rootRef={rootRef} draggingRef={draggingRef} />

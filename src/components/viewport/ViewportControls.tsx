@@ -11,7 +11,10 @@ import { useAppStore } from '../../store/appStore'
 import type { ViewType } from '../../store/appStore'
 import type { ViewportSlotIndex } from '../../scene/viewTypes'
 import type { ViewportStickyNav } from '../../store/viewportSlice'
-import { isViewportLmbToolOwner, shouldCaptureBlockCameraForViewportDrag } from '../../viewport/viewportInteractionUtils'
+import {
+  ownsViewportLeftButton,
+  shouldCaptureBlockCameraForViewportDrag,
+} from '../../viewport/viewportInteractionUtils'
 import {
   clearViewportLeftButtonBlocked,
   isViewportLeftButtonBlocked,
@@ -69,11 +72,12 @@ export function resolveIdleLeftNavigation(
   activeTool: import('../../store/appStore').ActiveTool,
   isPerspective: boolean,
   stickyNav: ViewportStickyNav | null,
-  _selectionMode: SelectionMode = 'object'
+  _selectionMode: SelectionMode = 'object',
+  pixelPaintOnModel = false
 ): 'orbit' | 'pan' | 'dolly' | null {
   const sticky = resolveStickyNavigation(stickyNav, isPerspective)
   if (sticky) return sticky
-  if (isViewportLmbToolOwner(activeTool)) return null
+  if (ownsViewportLeftButton(activeTool, pixelPaintOnModel)) return null
   return defaultViewportNavigation(isPerspective)
 }
 
@@ -136,15 +140,17 @@ export function resolveOrbitLeftNavigation(
   isPerspective: boolean,
   activeTool: import('../../store/appStore').ActiveTool,
   stickyNav: ViewportStickyNav | null = null,
-  selectionMode: SelectionMode = 'object'
+  _selectionMode: SelectionMode = 'object',
+  pixelPaintOnModel = false
 ): 'orbit' | 'pan' | 'dolly' | null {
   // Hard rule: Ctrl/Cmd+LMB never maps to orbit/pan/dolly.
   if (event.ctrlKey || event.metaKey) return null
 
   const lw = resolveLightWaveNavTarget(target, isPerspective)
 
-  // Draw/stroke/CAD/sculpt tools own LMB — only gadgets or sticky nav may borrow it.
-  if (isViewportLmbToolOwner(activeTool)) {
+  // Draw/stroke/CAD/sculpt tools and model painting own LMB — only gadgets or
+  // sticky nav may borrow it.
+  if (ownsViewportLeftButton(activeTool, pixelPaintOnModel)) {
     if (lw === 'pan' || lw === 'orbit' || lw === 'dolly') return lw
     const sticky = resolveStickyNavigation(stickyNav, isPerspective)
     if (sticky) return sticky
@@ -203,6 +209,9 @@ export function ViewportControls({
   const selectionMode = useAppStore((s) => s.selectionMode)
   const stickyNav = useAppStore((s) => s.viewportStickyNav)
   const setViewportStickyNav = useAppStore((s) => s.setViewportStickyNav)
+  const pixelPaintOnModel = useAppStore(
+    (s) => s.pixelEditorOpen && s.pixelEditorPaintOnModel
+  )
   const [domElement, setDomElement] = useState<HTMLElement | null>(null)
   const [primaryNavigation, setPrimaryNavigation] = useState<'orbit' | 'pan' | 'dolly' | null>(
     null
@@ -250,7 +259,8 @@ export function ViewportControls({
       state.activeTool,
       isPerspective,
       state.viewportStickyNav,
-      state.selectionMode
+      state.selectionMode,
+      state.pixelEditorOpen && state.pixelEditorPaintOnModel
     )
   }, [isPerspective])
 
@@ -292,8 +302,13 @@ export function ViewportControls({
         applyMouseButtons(null)
         return
       }
-      const tool = useAppStore.getState().activeTool
-      if (isViewportLmbToolOwner(tool)) {
+      const modifierState = useAppStore.getState()
+      if (
+        ownsViewportLeftButton(
+          modifierState.activeTool,
+          modifierState.pixelEditorOpen && modifierState.pixelEditorPaintOnModel
+        )
+      ) {
         restoreIdleNavigation()
         return
       }
@@ -341,14 +356,17 @@ export function ViewportControls({
     restoreIdleNavigation()
   }, [stickyNav, restoreIdleNavigation])
 
-  // Keep LMB/RMB mapping in sync when switching tools or selection mode.
+  // Keep LMB/RMB mapping in sync when switching tools or selection mode, and
+  // when paint-on-model claims or releases the left button.
   useLayoutEffect(() => {
     clearViewportLeftButtonBlocked()
     if (interactionHeldRef.current) return
     restoreIdleNavigation()
-  }, [activeTool, selectionMode, restoreIdleNavigation])
+  }, [activeTool, selectionMode, pixelPaintOnModel, restoreIdleNavigation])
 
-  // Sync LEFT-button mapping from the pointer event itself (before OrbitControls).
+  // Capture runs before OrbitControls' bubble handler: pick first, then either
+  // block LMB for object/component drag or map LEFT for camera. Never re-dispatch
+  // synthetic pointerdown from here — that re-enters capture and freezes the UI.
   useLayoutEffect(() => {
     if (!domElement) return
 
@@ -356,8 +374,8 @@ export function ViewportControls({
       if (event.button !== 0) return
 
       const state = useAppStore.getState()
+      const rect = domElement.getBoundingClientRect()
 
-      // Object/component drag: block BEFORE OrbitControls bubble handler (capture runs first).
       if (
         shouldCaptureBlockCameraForViewportDrag(
           event,
@@ -366,7 +384,7 @@ export function ViewportControls({
           state.activeTool,
           state.selectionMode,
           state.viewportStickyNav,
-          domElement.getBoundingClientRect(),
+          rect,
           camera,
           slotIndex,
           state.objects,
@@ -395,7 +413,8 @@ export function ViewportControls({
         isPerspective,
         state.activeTool,
         state.viewportStickyNav,
-        state.selectionMode
+        state.selectionMode,
+        state.pixelEditorOpen && state.pixelEditorPaintOnModel
       )
       setPrimaryNavigation(next)
       applyMouseButtons(next)
@@ -463,7 +482,7 @@ export function ViewportControls({
   }, [resetCameraNavigation, slotIndex])
 
   useEffect(() => {
-    registerLeftButtonPolicyListener(() => {
+    return registerLeftButtonPolicyListener(() => {
       const controls = controlsRef.current
       if (isViewportLeftButtonBlocked()) {
         setPrimaryNavigation(null)
@@ -477,7 +496,6 @@ export function ViewportControls({
         if (!interactionHeldRef.current) restoreIdleNavigation()
       }
     })
-    return () => registerLeftButtonPolicyListener(null)
   }, [applyMouseButtons, releaseObjectDragCameraBlock, restoreIdleNavigation])
 
   // Initial LMB mapping: perspective orbit / ortho pan unless a tool owns LMB.
@@ -507,6 +525,15 @@ export function ViewportControls({
   }, [invalidate, layoutVisible, slotIndex])
 
   const handleControlsStart = useCallback(() => {
+    // Belt-and-suspenders: never let orbit run while object free-drag owns LMB.
+    if (isViewportLeftButtonBlocked() || objectDragHeldRef.current) {
+      const controls = controlsRef.current
+      if (controls) {
+        controls.enabled = false
+        controls.mouseButtons.LEFT = NO_LEFT_BUTTON
+      }
+      return
+    }
     if (releaseTimerRef.current !== null) {
       clearTimeout(releaseTimerRef.current)
       releaseTimerRef.current = null

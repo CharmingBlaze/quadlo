@@ -2,7 +2,7 @@ import type { FloatingPanelState } from '../components/FloatingPanel'
 import type { UvSnapMode } from '../uv/uvSnap'
 import { unwrapSelectedFaces, type UvUnwrapMethod } from '../uv/uvUnwrap'
 import { expandFacesToPlanarRegions } from '../mesh/faceGroups'
-import { ensureObjectUVs, assignFullImageCardUVs, isProceduralCardObject, assignUvMappingForMode, resolveUvMappingMode, setUvPoints, type UvMappingMode } from '../uv/uvObject'
+import { ensureObjectUVs, assignFullImageCardUVs, isProceduralCardObject, assignUvMappingForMode, resolveUvMappingMode, setUvPoints, detachFacesUvTopology, type UvMappingMode } from '../uv/uvObject'
 import {
   flipUVsHorizontal,
   flipUVsVertical,
@@ -15,6 +15,12 @@ import {
   uvBoundsCenter,
 } from '../uv/uvEditing'
 import { collectUvIndicesForFaces } from '../uv/uvObject'
+import {
+  clearAllSeamEdges,
+  clearSeamEdges,
+  markSeamEdges,
+  toggleSeamEdges,
+} from '../uv/uvSeams'
 import type { Uv2 } from '../uv/uvTypes'
 import { cloneUv2 } from '../uv/uvTypes'
 import { setObjectMaterialMode } from '../material/materialEditorSlice'
@@ -56,6 +62,8 @@ export interface UvEditorLayoutState {
   uvEditorViewAll: boolean
   uvEditorAutoFit: boolean
   uvEditorSticky: boolean
+  /** Draw user-marked UV seams in the 3D viewport and UV canvas. */
+  uvEditorShowSeams: boolean
   objectTextures: Record<string, UvTextureInfo>
 }
 
@@ -78,6 +86,10 @@ export interface UvEditorLayoutActions {
   setUvEditorViewAll: (on: boolean) => void
   setUvEditorAutoFit: (on: boolean) => void
   setUvEditorSticky: (on: boolean) => void
+  setUvEditorShowSeams: (on: boolean) => void
+  /** Mark/clear/toggle the current 3D edge selection as UV seams. */
+  applySeamToSelectedEdges: (op: 'mark' | 'clear' | 'toggle') => void
+  clearAllSeams: (objectId?: string) => void
   setObjectUvMappingMode: (objectId: string, mode: UvMappingMode) => void
   loadObjectTexture: (objectId: string, file: File) => Promise<void>
   assignObjectTextureDocument: (objectId: string, docId: string, options?: { skipHistory?: boolean }) => void
@@ -123,6 +135,7 @@ export const uvEditorInitialState: UvEditorLayoutState = {
   uvEditorViewAll: false,
   uvEditorAutoFit: true,
   uvEditorSticky: true,
+  uvEditorShowSeams: true,
   objectTextures: {},
 }
 
@@ -256,6 +269,40 @@ export function createUvEditorSlice<T extends UvEditorLayoutState>(
     setUvEditorViewAll: (on) => setPartial({ uvEditorViewAll: on }),
     setUvEditorAutoFit: (on) => setPartial({ uvEditorAutoFit: on }),
     setUvEditorSticky: (on) => setPartial({ uvEditorSticky: on }),
+    setUvEditorShowSeams: (on) => setPartial({ uvEditorShowSeams: on }),
+
+    applySeamToSelectedEdges: (op) => {
+      const { objects, selectedObjectId, meshSelection, updateObject, commitHistory } = store()
+      const objectId = meshSelection?.objectId ?? selectedObjectId
+      if (!objectId) return
+      const obj = objects.find((o) => o.id === objectId)
+      if (!obj) return
+
+      const edges = meshSelection?.objectId === objectId ? meshSelection.edges : []
+      if (edges.length === 0) return
+
+      const next =
+        op === 'mark'
+          ? markSeamEdges(obj, edges)
+          : op === 'clear'
+            ? clearSeamEdges(obj, edges)
+            : toggleSeamEdges(obj, edges)
+      if (!next) return
+
+      updateObject(objectId, { seamEdges: next.seamEdges })
+      commitHistory(op === 'clear' ? 'Clear UV Seam' : 'Mark UV Seam')
+    },
+
+    clearAllSeams: (objectId) => {
+      const { objects, selectedObjectId, meshSelection, updateObject, commitHistory } = store()
+      const targetId = objectId ?? meshSelection?.objectId ?? selectedObjectId
+      if (!targetId) return
+      const obj = objects.find((o) => o.id === targetId)
+      if (!obj || !clearAllSeamEdges(obj)) return
+
+      updateObject(targetId, { seamEdges: undefined })
+      commitHistory('Clear All UV Seams')
+    },
 
     setObjectUvMappingMode: (objectId, mode) => {
       const { objects, updateObject } = store()
@@ -428,14 +475,19 @@ export function createUvEditorSlice<T extends UvEditorLayoutState>(
         faceIndices = obj.faces.map((_, i) => i)
       }
 
-      let uvIndices =
-        uvEditorSelectedPoints.length > 0
-          ? [...uvEditorSelectedPoints]
-          : collectUvIndicesForFaces(obj, faceIndices)
+      const isPointEdit = uvEditorSelectedPoints.length > 0
+      let workingObj = ensureObjectUVs(obj)
+      if (!isPointEdit && faceIndices.length > 0) {
+        workingObj = detachFacesUvTopology(obj, faceIndices)
+      }
+
+      const uvIndices = isPointEdit
+        ? [...uvEditorSelectedPoints]
+        : collectUvIndicesForFaces(workingObj, faceIndices)
       if (uvIndices.length === 0) return
 
-      const ensured = ensureObjectUVs(obj)
-      const uvs = ensured.uvs.map(cloneUv2)
+      const uvs = workingObj.uvs.map(cloneUv2)
+      const nextFaceUvIndices = workingObj.faceUvIndices
 
       if (op === 'flipH') flipUVsHorizontal(uvs, uvIndices)
       else if (op === 'flipV') flipUVsVertical(uvs, uvIndices)
@@ -471,7 +523,9 @@ export function createUvEditorSlice<T extends UvEditorLayoutState>(
         const st = s as unknown as UvStore
         return {
           objects: st.objects.map((o) =>
-            o.id === objectId ? { ...ensureObjectUVs(o), uvs, faceUvIndices: ensured.faceUvIndices } : o
+            o.id === objectId
+              ? { ...ensureObjectUVs(o), uvs, faceUvIndices: nextFaceUvIndices }
+              : o
           ),
         }
       })

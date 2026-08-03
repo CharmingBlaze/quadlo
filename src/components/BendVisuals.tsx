@@ -1,4 +1,4 @@
-import { Line } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../store/appStore'
@@ -59,7 +59,7 @@ export function BendVisuals() {
 
   return (
     <group renderOrder={26}>
-      <Line
+      <ViewportLine
         points={[
           [axisLine.start.x, axisLine.start.y, axisLine.start.z],
           [axisLine.end.x, axisLine.end.y, axisLine.end.z],
@@ -72,7 +72,7 @@ export function BendVisuals() {
       />
 
       {arcPoints.length > 1 && (
-        <Line
+        <ViewportLine
           points={arcPoints}
           color={accent}
           lineWidth={3}

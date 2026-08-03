@@ -50,6 +50,11 @@ function strokeFrameNormal(frame: StrokePlaneFrame): Vec3 {
   return { x: x / len, y: y / len, z: z / len }
 }
 
+/** Unit normal of a perspective stroke frame, pointing toward the camera. */
+export function strokePlaneNormal(frame: StrokePlaneFrame): Vec3 {
+  return strokeFrameNormal(frame)
+}
+
 /** Map plane (x,y) + local extrusion z onto a locked perspective stroke frame. */
 export function planePointToStrokeFrame(
   x: number,

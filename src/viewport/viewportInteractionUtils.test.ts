@@ -13,7 +13,11 @@ import {
   shouldDeferViewportClickToOrbit,
   shouldCtrlLmbBoxSelect,
   shouldCaptureBlockCameraForViewportDrag,
+  shouldCaptureGateSelectFreeDrag,
+  shouldCaptureGateComponentDrag,
+  meshHitHasComponent,
   isViewportLmbToolOwner,
+  ownsViewportLeftButton,
 } from './viewportInteractionUtils'
 import { SCENE_GRID_CELL } from '../scene/units'
 import type { WorldBox } from '../primitives/primitiveBoxMath'
@@ -91,6 +95,49 @@ describe('viewportInteractionUtils component tools', () => {
     expect(shouldDeferViewportClickToOrbit('perspective', 'push', 'object', 0)).toBe(false)
     expect(shouldDeferViewportClickToOrbit('front', 'select-object', 'object', 0)).toBe(true)
     expect(VIEWPORT_CLICK_DRAG_THRESHOLD_PX).toBeGreaterThanOrEqual(6)
+  })
+
+  it('gates select free-drag capture for select/move tools only', () => {
+    const base = { button: 0, shiftKey: false, ctrlKey: false, metaKey: false }
+    expect(shouldCaptureGateSelectFreeDrag(base, null, 'select-object', 'object', null)).toBe(true)
+    expect(shouldCaptureGateSelectFreeDrag(base, null, 'move', 'object', null)).toBe(true)
+    expect(shouldCaptureGateSelectFreeDrag(base, null, 'draw', 'object', null)).toBe(false)
+    expect(
+      shouldCaptureGateSelectFreeDrag({ ...base, shiftKey: true }, null, 'select-object', 'object', null)
+    ).toBe(false)
+    expect(shouldCaptureGateSelectFreeDrag(base, null, 'select-object', 'object', 'orbit')).toBe(false)
+  })
+
+  it('gates component-edit capture in vertex/edge/face modes', () => {
+    const base = { button: 0, shiftKey: false, ctrlKey: false, metaKey: false }
+    for (const mode of ['vertex', 'edge', 'face'] as const) {
+      expect(shouldCaptureGateComponentDrag(base, null, 'select-vertex', mode, null)).toBe(true)
+      expect(shouldCaptureGateComponentDrag(base, null, 'move', mode, null)).toBe(true)
+      // Rotate/scale drive gizmos, so the camera gate stays out of their way.
+      expect(shouldCaptureGateComponentDrag(base, null, 'rotate', mode, null)).toBe(false)
+      expect(shouldCaptureGateComponentDrag(base, null, 'scale', mode, null)).toBe(false)
+    }
+    expect(shouldCaptureGateComponentDrag(base, null, 'select-vertex', 'object', null)).toBe(false)
+    expect(shouldCaptureGateComponentDrag(base, null, 'select-vertex', 'vertex', 'orbit')).toBe(
+      false
+    )
+    expect(
+      shouldCaptureGateComponentDrag({ ...base, ctrlKey: true }, null, 'select-vertex', 'vertex', null)
+    ).toBe(false)
+    expect(
+      shouldCaptureGateComponentDrag({ ...base, shiftKey: true }, null, 'select-vertex', 'vertex', null)
+    ).toBe(false)
+    expect(
+      shouldCaptureGateComponentDrag({ ...base, button: 1 }, null, 'select-vertex', 'vertex', null)
+    ).toBe(false)
+  })
+
+  it('treats a pick as editable only when it lands on a component', () => {
+    expect(meshHitHasComponent(null)).toBe(false)
+    expect(meshHitHasComponent({ objectId: 'a' } as never)).toBe(false)
+    expect(meshHitHasComponent({ objectId: 'a', vertex: 2 } as never)).toBe(true)
+    expect(meshHitHasComponent({ objectId: 'a', edge: [0, 1] } as never)).toBe(true)
+    expect(meshHitHasComponent({ objectId: 'a', face: 3 } as never)).toBe(true)
   })
 
   it('does not capture-block camera for empty LMB or sticky nav', () => {
@@ -195,6 +242,25 @@ describe('viewportInteractionUtils component tools', () => {
     expect(isViewportLmbToolOwner('knife')).toBe(true)
     expect(isViewportLmbToolOwner('select-object')).toBe(false)
   })
+
+  it('hands LMB to paint-on-model regardless of the active tool', () => {
+    expect(ownsViewportLeftButton('select-object', false)).toBe(false)
+    expect(ownsViewportLeftButton('select-object', true)).toBe(true)
+    expect(ownsViewportLeftButton('move', true)).toBe(true)
+    // Tool ownership is unaffected when paint mode is off.
+    expect(ownsViewportLeftButton('draw', false)).toBe(true)
+  })
+
+  it('stops select tools from deferring the click to orbit while painting', () => {
+    expect(
+      !ownsViewportLeftButton('select-object', true) &&
+        shouldDeferViewportClickToOrbit('perspective', 'select-object', 'object', 0)
+    ).toBe(false)
+    expect(
+      !ownsViewportLeftButton('select-object', false) &&
+        shouldDeferViewportClickToOrbit('perspective', 'select-object', 'object', 0)
+    ).toBe(true)
+  })
 })
 
 describe('clientToHeightOnVerticalPlane', () => {
@@ -218,7 +284,6 @@ describe('clientToHeightOnVerticalPlane', () => {
     const camera = makeCamera()
     const center = new Vector3(0, 0, 0).project(camera)
     const screenX = rect.left + (center.x * 0.5 + 0.5) * rect.width
-    const screenY = rect.top + (-center.y * 0.5 + 0.5) * rect.height
 
     const worldOnPlane = new Vector3(0, 6, 0)
     worldOnPlane.project(camera)

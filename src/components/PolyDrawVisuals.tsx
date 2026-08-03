@@ -1,5 +1,5 @@
 import { useMemo, useEffect } from 'react'
-import { Line } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import * as THREE from 'three'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../store/appStore'
@@ -102,8 +102,8 @@ export function PolyDrawVisuals() {
     <group renderOrder={24}>
       {loopPoints.length >= 2 && (
         <>
-          <Line points={loopPoints} color="#080a0e" lineWidth={4} depthTest={false} transparent opacity={0.72} />
-          <Line
+          <ViewportLine points={loopPoints} color="#080a0e" lineWidth={4} depthTest={false} transparent opacity={0.72} />
+          <ViewportLine
             points={loopPoints}
             color={edgeColor}
             lineWidth={1.8}

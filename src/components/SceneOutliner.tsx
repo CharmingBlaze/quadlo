@@ -273,12 +273,64 @@ export function SceneOutliner({ variant = 'floating', className }: SceneOutliner
           )}
         </div>
         <div className="outliner-toolbar" role="toolbar" aria-label="Outliner actions">
-          <button type="button" onClick={() => store.setSelection(store.objects.map((object) => object.id))} disabled={!store.objects.length} title="Select all objects">All</button>
-          <button type="button" onClick={() => setAllVisible(true)} disabled={visibleCount === store.objects.length} title="Show every object">Show</button>
-          <button type="button" onClick={() => setAllVisible(false)} disabled={!visibleCount} title="Hide every object">Hide</button>
-          <button type="button" onClick={() => frameSelection()} disabled={!store.selectionObjectIds.length} title="Frame selected objects in all viewports">Frame</button>
-          <button type="button" onClick={() => duplicateObjects(store.selectionObjectIds)} disabled={!store.selectionObjectIds.length} title="Duplicate selected objects">Duplicate</button>
-          <button type="button" className="danger" onClick={() => deleteObjects(store.selectionObjectIds)} disabled={!store.selectionObjectIds.length} title="Delete selected objects">Delete</button>
+          <div className="outliner-toolbar-segment" role="group" aria-label="Selection and visibility">
+            <button
+              type="button"
+              className="outliner-toolbar-btn"
+              onClick={() => store.setSelection(store.objects.map((object) => object.id))}
+              disabled={!store.objects.length}
+              title="Select all objects"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className="outliner-toolbar-btn"
+              onClick={() => setAllVisible(true)}
+              disabled={visibleCount === store.objects.length}
+              title="Show every object"
+            >
+              Show
+            </button>
+            <button
+              type="button"
+              className="outliner-toolbar-btn"
+              onClick={() => setAllVisible(false)}
+              disabled={!visibleCount}
+              title="Hide every object"
+            >
+              Hide
+            </button>
+            <button
+              type="button"
+              className="outliner-toolbar-btn"
+              onClick={() => frameSelection()}
+              disabled={!store.selectionObjectIds.length}
+              title="Frame selected objects in all viewports"
+            >
+              Frame
+            </button>
+          </div>
+          <div className="outliner-toolbar-segment" role="group" aria-label="Object edits">
+            <button
+              type="button"
+              className="outliner-toolbar-btn"
+              onClick={() => duplicateObjects(store.selectionObjectIds)}
+              disabled={!store.selectionObjectIds.length}
+              title="Duplicate selected objects"
+            >
+              Duplicate
+            </button>
+            <button
+              type="button"
+              className="outliner-toolbar-btn outliner-toolbar-btn-danger"
+              onClick={() => deleteObjects(store.selectionObjectIds)}
+              disabled={!store.selectionObjectIds.length}
+              title="Delete selected objects"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       </header>
 

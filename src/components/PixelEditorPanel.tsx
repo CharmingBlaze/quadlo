@@ -72,6 +72,12 @@ export function PixelEditorPanel() {
       brushHardness: s.pixelEditorBrushHardness,
       brushOpacity: s.pixelEditorBrushOpacity,
       brushFlow: s.pixelEditorBrushFlow,
+      brushSpacing: s.pixelEditorBrushSpacing,
+      softEraser: s.pixelEditorSoftEraser,
+      pressureSize: s.pixelEditorPressureSize,
+      pressureOpacity: s.pixelEditorPressureOpacity,
+      seamBleed: s.pixelEditorSeamBleed,
+      seamBleedPasses: s.pixelEditorSeamBleedPasses,
       pixelPerfect: s.pixelEditorPixelPerfect,
       symH: s.pixelEditorSymmetryH,
       symV: s.pixelEditorSymmetryV,
@@ -94,6 +100,12 @@ export function PixelEditorPanel() {
       setBrushHardness: s.setPixelEditorBrushHardness,
       setBrushOpacity: s.setPixelEditorBrushOpacity,
       setBrushFlow: s.setPixelEditorBrushFlow,
+      setBrushSpacing: s.setPixelEditorBrushSpacing,
+      setSoftEraser: s.setPixelEditorSoftEraser,
+      setPressureSize: s.setPixelEditorPressureSize,
+      setPressureOpacity: s.setPixelEditorPressureOpacity,
+      setSeamBleed: s.setPixelEditorSeamBleed,
+      setSeamBleedPasses: s.setPixelEditorSeamBleedPasses,
       setPixelPerfect: s.setPixelEditorPixelPerfect,
       setSymH: s.setPixelEditorSymmetryH,
       setSymV: s.setPixelEditorSymmetryV,
@@ -1223,6 +1235,17 @@ export function PixelEditorPanel() {
             {renderBrushSoftOption('Hardness', store.brushHardness, store.setBrushHardness)}
             {renderBrushSoftOption('Opacity', store.brushOpacity, store.setBrushOpacity)}
             {renderBrushSoftOption('Flow', store.brushFlow, store.setBrushFlow)}
+            <label className="px-sidebar-option" title="Distance between dabs, as a fraction of brush size">
+              <span>Spacing</span>
+              <input
+                type="range"
+                min={2}
+                max={100}
+                value={Math.round(store.brushSpacing * 100)}
+                onChange={(e) => store.setBrushSpacing(Number(e.target.value) / 100)}
+              />
+              <span className="px-option-value">{Math.round(store.brushSpacing * 100)}%</span>
+            </label>
           </>
         )}
         <label className="px-sidebar-option">
@@ -1275,6 +1298,63 @@ export function PixelEditorPanel() {
             <input type="checkbox" checked={store.symV} onChange={(e) => store.setSymV(e.target.checked)} />
             <span>Symmetry V</span>
           </label>
+          <label
+            className="px-sidebar-check"
+            title="Eraser fades alpha with the brush falloff instead of clearing texels outright"
+          >
+            <input
+              type="checkbox"
+              checked={store.softEraser}
+              onChange={(e) => store.setSoftEraser(e.target.checked)}
+            />
+            <span>Soft eraser</span>
+          </label>
+          <label
+            className="px-sidebar-check"
+            title="Stylus pressure controls brush size (pen input only)"
+          >
+            <input
+              type="checkbox"
+              checked={store.pressureSize}
+              onChange={(e) => store.setPressureSize(e.target.checked)}
+            />
+            <span>Pen pressure → size</span>
+          </label>
+          <label
+            className="px-sidebar-check"
+            title="Stylus pressure controls brush opacity (pen input only)"
+          >
+            <input
+              type="checkbox"
+              checked={store.pressureOpacity}
+              onChange={(e) => store.setPressureOpacity(e.target.checked)}
+            />
+            <span>Pen pressure → opacity</span>
+          </label>
+          <label
+            className="px-sidebar-check"
+            title="Pad UV island edges after painting on the model so seams stop showing through"
+          >
+            <input
+              type="checkbox"
+              checked={store.seamBleed}
+              onChange={(e) => store.setSeamBleed(e.target.checked)}
+            />
+            <span>Seam bleed</span>
+          </label>
+          {store.seamBleed && (
+            <label className="px-sidebar-option" title="Pixels of padding written outside each island">
+              <span>Bleed</span>
+              <input
+                type="range"
+                min={1}
+                max={16}
+                value={store.seamBleedPasses}
+                onChange={(e) => store.setSeamBleedPasses(Number(e.target.value))}
+              />
+              <span className="px-option-value">{store.seamBleedPasses}px</span>
+            </label>
+          )}
           <button
             type="button"
             className="side-btn side-btn-wide"

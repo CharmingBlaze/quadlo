@@ -25,6 +25,7 @@ import {
   type BoxNetSize,
   type UvPackStyle,
 } from './uvPack'
+import { buildSeamLookup, spatialEdgeKey, type SeamLookup } from './uvSeams'
 import type { Uv2 } from './uvTypes'
 import { cloneUv2 } from './uvTypes'
 import { worldPointFromObject } from '../mesh/objectTransform'
@@ -265,18 +266,6 @@ function buildEdgeAdjacency(obj: SceneObject): {
 } {
   const edgeToFaces = new Map<string, number[]>()
   const spatialEdgeToFaces = new Map<string, number[]>()
-  const SPATIAL_QUANT = 1e-5
-  const posKey = (vi: number) => {
-    const p = obj.positions[vi]
-    if (!p) return `${vi}`
-    const q = (v: number) => Math.round(v / SPATIAL_QUANT)
-    return `${q(p.x)},${q(p.y)},${q(p.z)}`
-  }
-  const spatialEdgeKey = (a: number, b: number) => {
-    const ka = posKey(a)
-    const kb = posKey(b)
-    return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`
-  }
 
   for (let fi = 0; fi < obj.faces.length; fi++) {
     const face = obj.faces[fi]
@@ -288,7 +277,7 @@ function buildEdgeAdjacency(obj: SceneObject): {
       if (list) list.push(fi)
       else edgeToFaces.set(key, [fi])
 
-      const skey = spatialEdgeKey(a, b)
+      const skey = spatialEdgeKey(obj, a, b)
       const slist = spatialEdgeToFaces.get(skey)
       if (slist) slist.push(fi)
       else spatialEdgeToFaces.set(skey, [fi])
@@ -301,30 +290,21 @@ function faceNeighbors(
   fi: number,
   obj: SceneObject,
   edgeToFaces: Map<string, number[]>,
-  spatialEdgeToFaces: Map<string, number[]>
+  spatialEdgeToFaces: Map<string, number[]>,
+  seams?: SeamLookup
 ): number[] {
   const face = obj.faces[fi]
   const out = new Set<number>()
-  const SPATIAL_QUANT = 1e-5
-  const posKey = (vi: number) => {
-    const p = obj.positions[vi]
-    if (!p) return `${vi}`
-    const q = (v: number) => Math.round(v / SPATIAL_QUANT)
-    return `${q(p.x)},${q(p.y)},${q(p.z)}`
-  }
-  const spatialEdgeKey = (a: number, b: number) => {
-    const ka = posKey(a)
-    const kb = posKey(b)
-    return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`
-  }
 
   for (let i = 0; i < face.length; i++) {
     const a = face[i]
     const b = face[(i + 1) % face.length]
+    // A user seam is a hard island boundary: never walk across it.
+    if (seams && seams.size > 0 && seams.isSeam(a, b)) continue
     for (const other of edgeToFaces.get(edgeKey(a, b)) ?? []) {
       if (other !== fi) out.add(other)
     }
-    for (const other of spatialEdgeToFaces.get(spatialEdgeKey(a, b)) ?? []) {
+    for (const other of spatialEdgeToFaces.get(spatialEdgeKey(obj, a, b)) ?? []) {
       if (other !== fi) out.add(other)
     }
   }
@@ -336,7 +316,10 @@ function normalAngleDeg(n1: { x: number; y: number; z: number }, n2: { x: number
   return (Math.acos(dot) * 180) / Math.PI
 }
 
-/** Cluster faces into islands where adjacent face normals are within angleLimitDeg. */
+/**
+ * Cluster faces into islands where adjacent face normals are within
+ * angleLimitDeg. User-marked seams always split, regardless of angle.
+ */
 export function clusterFacesSmartUv(
   obj: SceneObject,
   faceIndices: number[],
@@ -344,6 +327,7 @@ export function clusterFacesSmartUv(
 ): number[][] {
   const allowed = new Set(faceIndices)
   const { edgeToFaces, spatialEdgeToFaces } = buildEdgeAdjacency(obj)
+  const seams = buildSeamLookup(obj)
   const visited = new Set<number>()
   const islands: number[][] = []
 
@@ -358,7 +342,7 @@ export function clusterFacesSmartUv(
       const cur = queue[head]!
       island.push(cur)
       const nCur = faceNormal3D(obj, cur)
-      for (const nb of faceNeighbors(cur, obj, edgeToFaces, spatialEdgeToFaces)) {
+      for (const nb of faceNeighbors(cur, obj, edgeToFaces, spatialEdgeToFaces, seams)) {
         if (!allowed.has(nb) || visited.has(nb)) continue
         const nNb = faceNormal3D(obj, nb)
         // Comparing only neighboring normals lets a smooth closed surface grow
@@ -380,10 +364,18 @@ export function clusterFacesSmartUv(
   return islands
 }
 
-/** Connected components of a face selection, independent of UV seams. */
-export function clusterFacesConnected(obj: SceneObject, faceIndices: number[]): number[][] {
+/**
+ * Connected components of a face selection. Pass respectSeams to split at
+ * user-marked seams; leave it off for pure topological connectivity.
+ */
+export function clusterFacesConnected(
+  obj: SceneObject,
+  faceIndices: number[],
+  respectSeams = false
+): number[][] {
   const allowed = new Set(faceIndices)
   const { edgeToFaces, spatialEdgeToFaces } = buildEdgeAdjacency(obj)
+  const seams = respectSeams ? buildSeamLookup(obj) : undefined
   const visited = new Set<number>()
   const components: number[][] = []
 
@@ -395,7 +387,7 @@ export function clusterFacesConnected(obj: SceneObject, faceIndices: number[]): 
     for (let head = 0; head < queue.length; head++) {
       const current = queue[head]!
       component.push(current)
-      for (const neighbor of faceNeighbors(current, obj, edgeToFaces, spatialEdgeToFaces)) {
+      for (const neighbor of faceNeighbors(current, obj, edgeToFaces, spatialEdgeToFaces, seams)) {
         if (!allowed.has(neighbor) || visited.has(neighbor)) continue
         visited.add(neighbor)
         queue.push(neighbor)
@@ -560,7 +552,7 @@ export function weldIslandUvTopology(
   }
 }
 
-/** Coplanar adjacent face groups. */
+/** Coplanar adjacent face groups, further split by any user-marked seams. */
 export function clusterFacesPlanarRegions(obj: SceneObject, faceIndices: number[]): number[][] {
   const allowed = new Set(faceIndices)
   const map = computeFaceGroups(obj)
@@ -578,7 +570,28 @@ export function clusterFacesPlanarRegions(obj: SceneObject, faceIndices: number[
     if (!used.has(fi)) islands.push([fi])
   }
 
-  return islands
+  return splitIslandsAtSeams(obj, islands)
+}
+
+/**
+ * Break islands that a user seam runs through. Clustering strategies that do
+ * not walk edges (planar regions, normal buckets) still need to honour seams.
+ */
+export function splitIslandsAtSeams(obj: SceneObject, islands: number[][]): number[][] {
+  const seams = buildSeamLookup(obj)
+  if (seams.size === 0) return islands
+
+  const out: number[][] = []
+  for (const island of islands) {
+    if (island.length < 2) {
+      out.push(island)
+      continue
+    }
+    for (const part of clusterFacesConnected(obj, island, true)) {
+      if (part.length > 0) out.push(part)
+    }
+  }
+  return out
 }
 
 /** Planar-project an island; weld corners that share the same mesh vertex index. */

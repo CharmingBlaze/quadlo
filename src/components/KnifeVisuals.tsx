@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react'
-import { Line } from '@react-three/drei'
+import { ViewportLine } from './ViewportLine'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useShallow } from 'zustand/react/shallow'
@@ -391,15 +391,15 @@ export function KnifeVisuals() {
       {/* Primary paths */}
       {confirmedPaths.map((path, idx) => (
         <group key={`confirmed-path-${idx}`}>
-          <Line points={path} color="#080a0e" lineWidth={5.2} depthTest={false} transparent opacity={0.85} toneMapped={false} />
-          <Line points={path} color={lineColor} lineWidth={2.2} depthTest={false} transparent opacity={1} toneMapped={false} />
+          <ViewportLine points={path} color="#080a0e" lineWidth={5.2} depthTest={false} transparent opacity={0.85} toneMapped={false} />
+          <ViewportLine points={path} color={lineColor} lineWidth={2.2} depthTest={false} transparent opacity={1} toneMapped={false} />
         </group>
       ))}
 
       {previewSegment && (
         <>
-          <Line points={previewSegment} color="#080a0e" lineWidth={4.6} depthTest={false} transparent opacity={0.78} toneMapped={false} />
-          <Line
+          <ViewportLine points={previewSegment} color="#080a0e" lineWidth={4.6} depthTest={false} transparent opacity={0.78} toneMapped={false} />
+          <ViewportLine
             points={previewSegment}
             color={hoverFill}
             lineWidth={2.2}
@@ -417,15 +417,15 @@ export function KnifeVisuals() {
       {/* Mirrored ghost paths */}
       {mirroredConfirmedPaths.map((path, idx) => (
         <group key={`mirrored-path-${idx}`}>
-          <Line points={path} color="#080a0e" lineWidth={5.2} depthTest={false} transparent opacity={0.4} toneMapped={false} />
-          <Line points={path} color={lineColor} lineWidth={2.2} depthTest={false} transparent opacity={0.5} toneMapped={false} />
+          <ViewportLine points={path} color="#080a0e" lineWidth={5.2} depthTest={false} transparent opacity={0.4} toneMapped={false} />
+          <ViewportLine points={path} color={lineColor} lineWidth={2.2} depthTest={false} transparent opacity={0.5} toneMapped={false} />
         </group>
       ))}
 
       {mirroredPreviewSegment && (
         <>
-          <Line points={mirroredPreviewSegment} color="#080a0e" lineWidth={4.6} depthTest={false} transparent opacity={0.4} toneMapped={false} />
-          <Line
+          <ViewportLine points={mirroredPreviewSegment} color="#080a0e" lineWidth={4.6} depthTest={false} transparent opacity={0.4} toneMapped={false} />
+          <ViewportLine
             points={mirroredPreviewSegment}
             color={hoverFill}
             lineWidth={2.2}

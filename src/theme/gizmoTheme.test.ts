@@ -8,6 +8,14 @@ import {
 import { getTheme } from './themes'
 import type { ThemeColors } from './useTheme'
 
+/**
+ * three-stdlib types require a DOM element, but these tests only inspect the
+ * gizmo material tree, which is built in the constructor without one.
+ */
+function headlessTransformControls(camera: THREE.Camera): TransformControls {
+  return new TransformControls(camera, undefined as unknown as HTMLElement)
+}
+
 function mockTheme(): ThemeColors {
   const css = getTheme('quadlo-default').css
   return {
@@ -87,7 +95,7 @@ function collectGizmoMaterials(controls: TransformControls, mode: 'translate' | 
 describe('gizmoTheme', () => {
   it('themes active translate gizmo handles with readable opacity and tempColor', () => {
     const camera = new THREE.PerspectiveCamera()
-    const controls = new TransformControls(camera)
+    const controls = headlessTransformControls(camera)
     const target = new THREE.Object3D()
     controls.attach(target)
     controls.setMode('translate')
@@ -109,7 +117,7 @@ describe('gizmoTheme', () => {
 
   it('syncGizmoInteractionColors delegates to applyTransformControlsTheme', () => {
     const camera = new THREE.PerspectiveCamera()
-    const controls = new TransformControls(camera)
+    const controls = headlessTransformControls(camera)
     controls.attach(new THREE.Object3D())
     controls.setMode('translate')
 

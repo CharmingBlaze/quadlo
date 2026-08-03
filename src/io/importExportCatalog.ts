@@ -82,30 +82,33 @@ export const IMPORT_OPTIONS: ImportOption[] = [
 export const EXPORT_OPTIONS: ExportOption[] = [
   {
     kind: 'glb',
-    label: 'GLB — 3D model + textures',
-    description: 'Single binary file with meshes, UVs, and painted textures embedded.',
+    label: 'GLB — PBR model (recommended)',
+    description:
+      'Best for Blender & game engines: embeds roughness, metalness, opacity, double-sided, UVs, and textures.',
     extension: '.glb',
     needsMesh: true,
     recommended: true,
   },
   {
     kind: 'gltf',
-    label: 'GLTF — JSON 3D model',
-    description: 'JSON glTF with embedded buffers; good for web pipelines.',
+    label: 'GLTF — PBR JSON model',
+    description: 'Same PBR surface data as GLB in JSON form — Unity, Godot, and web pipelines.',
     extension: '.gltf',
     needsMesh: true,
   },
   {
     kind: 'obj-zip',
     label: 'OBJ bundle (ZIP)',
-    description: 'OBJ, MTL, and texture PNGs in one archive — best for textured assets.',
+    description:
+      'OBJ + MTL + textures + materials JSON with PBR sidecar hints for Blender legacy workflows.',
     extension: '.zip',
     needsMesh: true,
   },
   {
     kind: 'obj-mtl',
     label: 'OBJ + MTL',
-    description: 'Wavefront mesh and material library (.obj + .mtl in the same folder).',
+    description:
+      'Wavefront mesh with MTL dissolve/Ns and blocky3d_pbr comments — pair with materials JSON for full PBR.',
     extension: '.obj',
     needsMesh: true,
   },
@@ -126,7 +129,8 @@ export const EXPORT_OPTIONS: ExportOption[] = [
   {
     kind: 'materials-json',
     label: 'Materials manifest (JSON)',
-    description: 'Material settings and texture references for the current scope.',
+    description:
+      'PBR surface snapshot + Blender/Unity/Unreal/glTF mapping hints for the current scope.',
     extension: '.json',
     needsMesh: true,
   },

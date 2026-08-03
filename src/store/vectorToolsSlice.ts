@@ -43,6 +43,7 @@ import { canExtrudeHeightInView, completingViewsForHeight, isOrthoView, type Axi
 import { maxRoundedBoxSubdivisionsForBudget } from '../mesh/meshPolyBudget'
 import type { ViewType, OrthoViewType } from '../scene/viewTypes'
 import { normalizeViewType } from '../scene/viewTypes'
+import type { StrokePlaneFrame } from '../stroke/worldProjection'
 import { clearStrokeDraftState, isHairStrokeMode } from './strokeSlice'
 
 type UvTextureInfo = {
@@ -75,6 +76,8 @@ export interface PrimitiveBoxDraft {
 export interface VectorPenDraft {
   anchors: VectorAnchor[]
   view: ViewType
+  /** Locked camera-facing plane for perspective pen drafts (required for preview + commit). */
+  planeFrame?: StrokePlaneFrame | null
   previewPoint: { x: number; y: number } | null
   pendingAnchorIndex: number | null
   continuePathId: string | null
@@ -96,6 +99,8 @@ export interface VectorToolsLayoutState {
   vectorDocument: VectorDocument
   vectorDraft: { x: number; y: number }[]
   vectorDraftView: ViewType | null
+  /** Locked camera-facing plane for perspective vector-shape drags. */
+  vectorDraftPlane: StrokePlaneFrame | null
   vectorIsDrawing: boolean
   vectorPenDraft: VectorPenDraft | null
   activeShapeKind: ShapeKind
@@ -106,10 +111,18 @@ export interface VectorToolsLayoutState {
 }
 
 export interface VectorToolsLayoutActions {
-  startVectorStroke: (point: { x: number; y: number }, view: ViewType) => void
+  startVectorStroke: (
+    point: { x: number; y: number },
+    view: ViewType,
+    planeFrame?: StrokePlaneFrame | null
+  ) => void
   continueVectorStroke: (point: { x: number; y: number }) => void
   endVectorStroke: (view: ViewType) => void
-  penPointerDown: (point: { x: number; y: number }, view: ViewType) => void
+  penPointerDown: (
+    point: { x: number; y: number },
+    view: ViewType,
+    planeFrame?: StrokePlaneFrame | null
+  ) => void
   penPointerMove: (point: { x: number; y: number }, options?: { altKey?: boolean }) => void
   penPointerUp: (point: { x: number; y: number }, options?: { altKey?: boolean }) => void
   penFinishPath: () => void
@@ -130,13 +143,16 @@ export interface VectorToolsLayoutActions {
       /** Replace this object in place (same id/transform). */
       replaceObjectId?: string
       historyLabel?: string
+      /** Locked perspective plane for pen/shape commits. */
+      planeFrame?: StrokePlaneFrame | null
     }
   ) => void
   commitVectorShape: (
     kind: ShapeKind,
     a: { x: number; y: number },
     b: { x: number; y: number },
-    view: ViewType
+    view: ViewType,
+    planeFrame?: StrokePlaneFrame | null
   ) => void
   setActiveShapeKind: (kind: ShapeKind) => void
   setActivePrimitiveKind: (kind: PrimitiveKind | null) => void
@@ -173,6 +189,7 @@ export const vectorToolsInitialState: VectorToolsLayoutState = {
   vectorDocument: emptyVectorDocument(),
   vectorDraft: [],
   vectorDraftView: null,
+  vectorDraftPlane: null,
   vectorIsDrawing: false,
   vectorPenDraft: null,
   activeShapeKind: 'sphere',
@@ -186,6 +203,7 @@ export function clearVectorDraftState(): Pick<
   VectorToolsLayoutState,
   | 'vectorDraft'
   | 'vectorDraftView'
+  | 'vectorDraftPlane'
   | 'vectorIsDrawing'
   | 'vectorPenDraft'
   | 'primitiveBoxDraft'
@@ -193,9 +211,22 @@ export function clearVectorDraftState(): Pick<
   return {
     vectorDraft: [],
     vectorDraftView: null,
+    vectorDraftPlane: null,
     vectorIsDrawing: false,
     vectorPenDraft: null,
     primitiveBoxDraft: null,
+  }
+}
+
+function clearVectorShapeDraft(): Pick<
+  VectorToolsLayoutState,
+  'vectorDraft' | 'vectorDraftView' | 'vectorDraftPlane' | 'vectorIsDrawing'
+> {
+  return {
+    vectorDraft: [],
+    vectorDraftView: null,
+    vectorDraftPlane: null,
+    vectorIsDrawing: false,
   }
 }
 
@@ -309,8 +340,13 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
   }
 
   return {
-    startVectorStroke: (point, view) =>
-      setPartial({ vectorDraft: [point], vectorIsDrawing: true, vectorDraftView: view }),
+    startVectorStroke: (point, view, planeFrame = null) =>
+      setPartial({
+        vectorDraft: [point],
+        vectorIsDrawing: true,
+        vectorDraftView: view,
+        vectorDraftPlane: view === 'perspective' ? planeFrame : null,
+      }),
 
     continueVectorStroke: (point) =>
       setPartial((s) => {
@@ -320,7 +356,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         return { vectorDraft: [s.vectorDraft[0], point] }
       }),
 
-    penPointerDown: (point, view) => {
+    penPointerDown: (point, view, planeFrame = null) => {
       const {
         vectorPenDraft,
         closeThreshold,
@@ -331,6 +367,12 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
 
       let pt = { ...point }
       const draft = vectorPenDraft?.view === view ? vectorPenDraft : null
+      // Perspective drafts keep the plane locked on first click (like Sketch / vector-shape).
+      const lockedPlane =
+        view === 'perspective'
+          ? (draft?.planeFrame ?? planeFrame ?? null)
+          : null
+      if (view === 'perspective' && !lockedPlane) return
       // Generous close hit so first-point connect wins over handles / nearby nodes.
       const closeHit = closeThreshold * 3
 
@@ -436,6 +478,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
                 vectorPenDraft: {
                   anchors: cloneAnchors(hit.path),
                   view,
+                  planeFrame: lockedPlane,
                   previewPoint: pt,
                   pendingAnchorIndex: null,
                   continuePathId: hit.pathId,
@@ -470,6 +513,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
           vectorPenDraft: {
             anchors,
             view,
+            planeFrame: lockedPlane,
             previewPoint: pt,
             pendingAnchorIndex: anchors.length - 1,
             continuePathId,
@@ -745,6 +789,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         vectorPenDraft: {
           anchors: cloneAnchors(path),
           view: path.view,
+          planeFrame: object.sketchSource?.planeFrame ?? null,
           previewPoint: null,
           pendingAnchorIndex: null,
           continuePathId: path.id,
@@ -792,6 +837,10 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
       const { vectorPenDraft, activeColor, commitVectorPath, objects } = store()
       if (!vectorPenDraft) return
       if (vectorPenDraft.pendingAnchorIndex !== null) return
+      if (vectorPenDraft.view === 'perspective' && !vectorPenDraft.planeFrame) {
+        setPartial({ vectorPenDraft: null })
+        return
+      }
 
       const minAnchors = closed ? 3 : 2
       if (vectorPenDraft.anchors.length < minAnchors) {
@@ -805,6 +854,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         ? get().vectorDocument.paths.find((p) => p.id === continuePathId)
         : null
       const replaceObjectId = editingObjectId ?? null
+      const planeFrame = vectorPenDraft.planeFrame ?? null
 
       const path: VectorPath = {
         id: continuePathId ?? generateId(),
@@ -830,6 +880,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
           skipHistory: true,
           skipSymmetry: true,
           replaceObjectId,
+          planeFrame,
         })
         store().commitHistory('Edit vector path')
         store().clearExtrudeDrag()
@@ -861,7 +912,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         setPartial({ vectorPenDraft: null })
       }
 
-      commitVectorPath(path, { skipHistory: !!continuePathId })
+      commitVectorPath(path, { skipHistory: !!continuePathId, planeFrame })
       if (continuePathId) store().commitHistory('Connect pen path')
 
       store().clearExtrudeDrag()
@@ -874,18 +925,24 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
       const {
         vectorDraft,
         vectorDraftView,
+        vectorDraftPlane,
         activeTool,
         activeShapeKind,
         commitVectorShape,
       } = store()
 
-      if (vectorDraft.length < 2 || view === 'perspective') {
-        setPartial({ vectorDraft: [], vectorIsDrawing: false, vectorDraftView: null })
+      if (vectorDraft.length < 2) {
+        setPartial(clearVectorShapeDraft())
+        return
+      }
+
+      if (view === 'perspective' && !vectorDraftPlane) {
+        setPartial(clearVectorShapeDraft())
         return
       }
 
       if (activeTool !== 'vector-shape') {
-        setPartial({ vectorDraft: [], vectorIsDrawing: false, vectorDraftView: null })
+        setPartial(clearVectorShapeDraft())
         return
       }
 
@@ -893,19 +950,16 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         return
       }
 
-      if (activeTool === 'vector-shape') {
-        const a = vectorDraft[0]
-        const b = vectorDraft[vectorDraft.length - 1]
-        const span = Math.hypot(b.x - a.x, b.y - a.y)
-        if (span < 3) {
-          setPartial({ vectorDraft: [], vectorIsDrawing: false, vectorDraftView: null })
-          return
-        }
-
-        commitVectorShape(activeShapeKind, a, b, view)
+      const a = vectorDraft[0]
+      const b = vectorDraft[vectorDraft.length - 1]
+      const span = Math.hypot(b.x - a.x, b.y - a.y)
+      if (span < 3) {
+        setPartial(clearVectorShapeDraft())
+        return
       }
 
-      setPartial({ vectorDraft: [], vectorIsDrawing: false, vectorDraftView: null })
+      commitVectorShape(activeShapeKind, a, b, view, vectorDraftPlane)
+      setPartial(clearVectorShapeDraft())
     },
 
     commitVectorPath: (
@@ -915,6 +969,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         skipSymmetry?: boolean
         replaceObjectId?: string
         historyLabel?: string
+        planeFrame?: StrokePlaneFrame | null
       }
     ) => {
       const {
@@ -973,6 +1028,10 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
       const useBlobInflation = prevSource?.blobInflation ?? blobInflation
       const useHairTip = prevSource?.hairTipStyle ?? hairTipStyle
 
+      const planeFrame =
+        options?.planeFrame ??
+        (path.view === 'perspective' ? prevObject?.sketchSource?.planeFrame ?? null : null)
+
       let obj = vectorPathToMesh(path, {
         view: path.view,
         polyBudget: usePolyBudget,
@@ -983,6 +1042,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         defaultDepth: prevSource?.defaultDepth ?? defaultDepth,
         color: path.color,
         stylize: prevSource?.stylize ?? facetExaggeration,
+        planeFrame,
         extrudeMode,
         latheMode,
         latheCaps,
@@ -1147,7 +1207,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
       }))
     },
 
-    commitVectorShape: (kind, a, b, view) => {
+    commitVectorShape: (kind, a, b, view, planeFrame = null) => {
       const {
         polyBudget,
         defaultDepth,
@@ -1160,6 +1220,7 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         depth: defaultDepth,
         polyBudget,
         color: activeColor,
+        planeFrame,
         ...(kind === 'roundedBox'
           ? {
               roundedBoxParams: {
@@ -1180,10 +1241,8 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         toolCategory: 'vector',
         activePrimitiveKind: null,
         primitiveBoxDraft: null,
-        vectorDraft: [],
-        vectorIsDrawing: false,
-        vectorDraftView: null,
         vectorPenDraft: null,
+        ...clearVectorShapeDraft(),
         ...clearStrokeDraftState(),
       })
     },
@@ -1196,10 +1255,8 @@ export function createVectorToolsSlice<T extends VectorToolsLayoutState>(
         activeTool: resolvedKind ? 'primitive-box' : 'draw',
         toolCategory: 'draw',
         primitiveBoxDraft: null,
-        vectorDraft: [],
-        vectorIsDrawing: false,
-        vectorDraftView: null,
         vectorPenDraft: null,
+        ...clearVectorShapeDraft(),
         ...clearStrokeDraftState(),
       })
     },

@@ -11,8 +11,12 @@ import {
 import type { SelectionMode } from '../store/appStore'
 import {
   add3,
+  cross3,
+  dot3,
   faceNormal,
   normalize3,
+  scale3,
+  sub3,
   type Vec3,
 } from '../utils/math'
 import { cloneTransform } from './objectTransform'
@@ -32,6 +36,7 @@ export function cloneSceneObject(obj: SceneObject): SceneObject {
     faces: obj.faces.map((f) => [...f]),
     faceColors: [...obj.faceColors],
     faceGroups: obj.faceGroups?.map((g) => [...g]),
+    seamEdges: obj.seamEdges ? [...obj.seamEdges] : undefined,
     uvs: obj.uvs?.map((u) => ({ ...u })),
     faceUvIndices: obj.faceUvIndices?.map((f) => [...f]),
     cornerColors: obj.cornerColors?.map(
@@ -125,6 +130,96 @@ function collectExtrudeFaces(
     }
   }
   return faces
+}
+
+/** Faces operated on by region extrude/inset (selected faces or faces incident on selected edges/verts). */
+export function collectRegionFaceSet(
+  obj: SceneObject,
+  selection: MeshComponentSelection,
+  mode: SelectionMode
+): Set<number> {
+  return collectExtrudeFaces(obj, selection, mode)
+}
+
+function planeBasis(normal: Vec3): { right: Vec3; up: Vec3 } {
+  const n = normalize3(normal)
+  const pick = Math.abs(n.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 }
+  const right = normalize3(cross3(pick, n))
+  const up = normalize3(cross3(n, right))
+  return { right, up }
+}
+
+function projectToPlane(v: Vec3, planeNormal: Vec3): Vec3 {
+  const d = dot3(v, planeNormal)
+  return sub3(v, scale3(planeNormal, d))
+}
+
+function intersectLines2D(
+  p1: { x: number; y: number },
+  d1: { x: number; y: number },
+  p2: { x: number; y: number },
+  d2: { x: number; y: number }
+): { x: number; y: number } | null {
+  const det = d1.x * d2.y - d1.y * d2.x
+  if (Math.abs(det) < 1e-10) return null
+  const dx = p2.x - p1.x
+  const dy = p2.y - p1.y
+  const t = (dx * d2.y - dy * d2.x) / det
+  return { x: p1.x + t * d1.x, y: p1.y + t * d1.y }
+}
+
+/** Offset a corner vertex by intersecting edge-parallel inset lines (Blender-style). */
+function computeInsetVertex(
+  p: Vec3,
+  planeNormal: Vec3,
+  right: Vec3,
+  up: Vec3,
+  neighborDirs: Vec3[],
+  thickness: number
+): Vec3 {
+  const to2 = (v: Vec3) => ({
+    x: dot3(sub3(v, p), right),
+    y: dot3(sub3(v, p), up),
+  })
+  const from2 = (v: { x: number; y: number }) =>
+    add3(p, add3(scale3(right, v.x), scale3(up, v.y)))
+
+  const lines: { p: { x: number; y: number }; d: { x: number; y: number } }[] = []
+  for (const raw of neighborDirs) {
+    const ed = normalize3(projectToPlane(raw, planeNormal))
+    if (Math.hypot(ed.x, ed.y, ed.z) < 1e-10) continue
+    const inward = normalize3(cross3(planeNormal, ed))
+    const origin = add3(p, scale3(inward, thickness))
+    lines.push({ p: to2(origin), d: to2(ed) })
+  }
+
+  if (lines.length === 0) return { ...p }
+  if (lines.length === 1) {
+    const ed = normalize3(projectToPlane(neighborDirs[0]!, planeNormal))
+    const inward = normalize3(cross3(planeNormal, ed))
+    return add3(p, scale3(inward, thickness))
+  }
+
+  const hits: { x: number; y: number }[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const a = lines[i]!
+    const b = lines[(i + 1) % lines.length]!
+    const hit = intersectLines2D(a.p, a.d, b.p, b.d)
+    if (hit) hits.push(hit)
+  }
+
+  if (hits.length === 0) {
+    const avg = lines.reduce((sum, line) => ({ x: sum.x + line.p.x, y: sum.y + line.p.y }), {
+      x: 0,
+      y: 0,
+    })
+    return from2({ x: avg.x / lines.length, y: avg.y / lines.length })
+  }
+
+  const avg = hits.reduce((sum, hit) => ({ x: sum.x + hit.x, y: sum.y + hit.y }), { x: 0, y: 0 })
+  avg.x /= hits.length
+  avg.y /= hits.length
+  return from2(avg)
 }
 
 function collectBevelEdges(
@@ -436,6 +531,126 @@ export function bevelMeshSelection(
   return { ...obj, positions, faces, faceColors }
 }
 
+/** Blender-like Inset Faces: shrink selected regions in-plane and bridge boundary side walls. */
+export function insetMeshSelection(
+  obj: SceneObject,
+  selection: MeshComponentSelection,
+  mode: SelectionMode,
+  thickness: number,
+  depth = 0
+): SceneObject & { resultingSelection?: MeshComponentSelection } {
+  const faceSet = collectExtrudeFaces(obj, selection, mode)
+  if (faceSet.size === 0 || (Math.abs(thickness) < 1e-8 && Math.abs(depth) < 1e-8)) {
+    return cloneSceneObject(obj)
+  }
+
+  const positions = obj.positions.map((p) => ({ ...p }))
+  const faces = obj.faces.map((f) => [...f])
+  const faceColors = [...obj.faceColors]
+
+  const hasUvs = !!obj.uvs?.length && obj.faceUvIndices?.length === obj.faces.length
+  const uvs = obj.uvs?.map((uv) => ({ ...uv })) ?? []
+  const faceUvIndices = obj.faceUvIndices?.map((face) => [...face]) ?? []
+  const faceGroups = obj.faceGroups?.map((group) => [...group])
+
+  const resultingFaces: number[] = []
+
+  for (const region of selectedFaceRegions(obj, faceSet)) {
+    let normalSum: Vec3 = { x: 0, y: 0, z: 0 }
+    for (const fi of region) normalSum = add3(normalSum, faceAreaNormal(obj, obj.faces[fi]!))
+    let regionNormal = normalize3(normalSum)
+    if (Math.hypot(regionNormal.x, regionNormal.y, regionNormal.z) < 1e-8) {
+      const first = obj.faces[region[0]!]!
+      regionNormal = faceNormal(
+        obj.positions[first[0]!]!,
+        obj.positions[first[1]!]!,
+        obj.positions[first[2] ?? first[0]!]!
+      )
+    }
+
+    const { right, up } = planeBasis(regionNormal)
+
+    const regionVerts = new Set<number>()
+    const boundary = new Map<string, { count: number; a: number; b: number; color: number; group?: number[] }>()
+    const vertexNeighbors = new Map<number, number[]>()
+
+    for (const fi of region) {
+      const face = obj.faces[fi]!
+      for (let i = 0; i < face.length; i++) {
+        const a = face[i]!
+        const b = face[(i + 1) % face.length]!
+        regionVerts.add(a)
+        regionVerts.add(b)
+        const key = edgeKey(a, b)
+        const entry = boundary.get(key)
+        if (entry) entry.count++
+        else {
+          boundary.set(key, {
+            count: 1,
+            a,
+            b,
+            color: faceColors[fi] ?? obj.color,
+            group: faceGroups?.[fi],
+          })
+        }
+        const list = vertexNeighbors.get(a) ?? []
+        if (!list.includes(b)) list.push(b)
+        vertexNeighbors.set(a, list)
+        const listB = vertexNeighbors.get(b) ?? []
+        if (!listB.includes(a)) listB.push(a)
+        vertexNeighbors.set(b, listB)
+      }
+      resultingFaces.push(fi)
+    }
+
+    const oldToNew = new Map<number, number>()
+    for (const vi of regionVerts) {
+      const p = positions[vi]!
+      const neighborDirs = (vertexNeighbors.get(vi) ?? []).map((nb) => sub3(positions[nb]!, p))
+      let insetPos = computeInsetVertex(p, regionNormal, right, up, neighborDirs, thickness)
+      if (Math.abs(depth) > 1e-8) {
+        insetPos = add3(insetPos, scale3(regionNormal, depth))
+      }
+      oldToNew.set(vi, positions.length)
+      positions.push(insetPos)
+    }
+
+    for (const fi of region) {
+      faces[fi] = obj.faces[fi]!.map((vi) => oldToNew.get(vi)!)
+    }
+
+    for (const edge of boundary.values()) {
+      if (edge.count !== 1) continue
+      const na = oldToNew.get(edge.a)!
+      const nb = oldToNew.get(edge.b)!
+      faces.push([edge.a, edge.b, nb, na])
+      faceColors.push(edge.color)
+      if (faceGroups) faceGroups.push(edge.group ? [...edge.group] : [])
+      if (hasUvs) {
+        const base = uvs.length
+        uvs.push({ u: 0, v: 0 }, { u: 1, v: 0 }, { u: 1, v: 1 }, { u: 0, v: 1 })
+        faceUvIndices.push([base, base + 1, base + 2, base + 3])
+      }
+    }
+  }
+
+  return {
+    ...obj,
+    positions,
+    faces,
+    faceColors,
+    faceGroups,
+    uvs: hasUvs ? uvs : obj.uvs,
+    faceUvIndices: hasUvs ? faceUvIndices : obj.faceUvIndices,
+    resultingSelection: {
+      objectId: obj.id,
+      vertices: [],
+      edges: [],
+      faces: resultingFaces,
+    },
+  }
+}
+
 const _pivot = new THREE.Vector3()
 const _axis = new THREE.Vector3()
 
@@ -514,7 +729,7 @@ export function scaleMeshSelection(
   return { ...obj, positions }
 }
 
-export type MeshModalOpKind = 'extrude' | 'rotate' | 'scale' | 'bevel' | 'move' | 'round'
+export type MeshModalOpKind = 'extrude' | 'rotate' | 'scale' | 'bevel' | 'inset' | 'move' | 'round'
 
 export function roundMeshSelection(
   obj: SceneObject,
@@ -643,6 +858,8 @@ export function applyMeshModalOp(
       )
     case 'bevel':
       return bevelMeshSelection(baseObject, selection, selectionMode, value, bevelSegments)
+    case 'inset':
+      return insetMeshSelection(baseObject, selection, selectionMode, value)
     case 'rotate': {
       let ax: Vec3 = { x: 0, y: 1, z: 0 }
       if (axisLock === 'x') ax = { x: 1, y: 0, z: 0 }
@@ -724,7 +941,7 @@ export function applyMeshModalOpWithSymmetry(
 
   const { axis, plane } = symmetry
 
-  if (op === 'extrude' || op === 'bevel') {
+  if (op === 'extrude' || op === 'bevel' || op === 'inset') {
     const direction = extrudeDirectionForAxisLock(axisLock)
     if (op === 'extrude' && direction) {
       const mirrored = mirrorMeshSelection(baseObject, selection, axis, plane)
@@ -816,6 +1033,8 @@ export function modalValueFromMouseDelta(
       return extrudeValueFromScreenDelta(dx, dy, 0.15 * sensitivityScale)
     case 'bevel':
       return Math.hypot(dx, dy) * 0.04 * sensitivityScale
+    case 'inset':
+      return Math.hypot(dx, dy) * 0.04 * sensitivityScale
     case 'rotate':
       return dx * 0.02 * sensitivityScale
     case 'scale':
@@ -839,6 +1058,8 @@ export function modalValueFromWheel(
       return current + step * 0.4
     case 'bevel':
       return current + step * 0.2
+    case 'inset':
+      return current + step * 0.2
     case 'rotate':
       return current + step * 0.08
     case 'scale':
@@ -855,6 +1076,8 @@ export function formatModalValue(op: MeshModalOpKind, value: number): string {
     case 'extrude':
       return value.toFixed(2)
     case 'bevel':
+      return value.toFixed(3)
+    case 'inset':
       return value.toFixed(3)
     case 'rotate':
       return `${((value * 180) / Math.PI).toFixed(1)}°`

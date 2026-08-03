@@ -20,6 +20,7 @@ import {
 } from './meshTopologyOps'
 import { splitFaceGroupsAfterCut } from './faceGroups'
 import { weldSceneObjectCoincidentVertices } from './subdivisionSurface'
+import { unionCoincidentVertices } from './vertexWeldGroups'
 import type { Vec3 } from '../utils/math'
 
 const EPS = 1e-6
@@ -71,45 +72,20 @@ function faceHasVerts(face: number[], a: number, b: number): boolean {
 /** Soft weld that keeps UV corner indices (unlike subdivision weld). */
 export function weldCoincidentVerticesKeepUvs(obj: SceneObject, eps = POS_EPS): SceneObject {
   if (obj.positions.length < 2) return obj
-  const eps2 = eps * eps
   const n = obj.positions.length
-  const parent = Array.from({ length: n }, (_, i) => i)
-
-  const find = (i: number): number => {
-    let r = i
-    while (parent[r] !== r) r = parent[r]!
-    let x = i
-    while (parent[x] !== x) {
-      const next = parent[x]!
-      parent[x] = r
-      x = next
-    }
-    return r
-  }
-  const unite = (a: number, b: number) => {
-    const ra = find(a)
-    const rb = find(b)
-    if (ra !== rb) parent[rb] = ra
-  }
-
-  for (let i = 0; i < n; i++) {
-    const pi = obj.positions[i]!
-    for (let j = i + 1; j < n; j++) {
-      if (dist2(pi, obj.positions[j]!) <= eps2) unite(i, j)
-    }
-  }
+  const weldRoots = unionCoincidentVertices(obj.positions, eps)
 
   const roots = new Map<number, number>()
   const positions: Vec3[] = []
   for (let i = 0; i < n; i++) {
-    const r = find(i)
+    const r = weldRoots[i]!
     if (!roots.has(r)) {
       roots.set(r, positions.length)
       positions.push({ ...obj.positions[r]! })
     }
   }
 
-  const remap = (vi: number) => roots.get(find(vi))!
+  const remap = (vi: number) => roots.get(weldRoots[vi]!)!
 
   const faces: number[][] = []
   const faceColors: number[] = []
