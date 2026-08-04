@@ -42,6 +42,12 @@ import { computeSelectionFitFrame } from '../viewport/fitViewports'
 import { SceneOutliner } from './SceneOutliner'
 import { boxCenterSize } from '../primitives/primitiveBoxMath'
 import { HairTextureDialog } from './HairTextureDialog'
+import { VertexAuditSection } from './sidePanel/VertexAuditSection'
+import { RetroShaderSection } from './sidePanel/RetroShaderSection'
+import { ArmaturePosingSection } from './sidePanel/ArmaturePosingSection'
+import { AnimationSection } from './sidePanel/AnimationSection'
+import { AnimationTimelinePanel } from './AnimationTimelinePanel'
+import { QuickAnimDockBar } from './QuickAnimDockBar'
 import { listSceneTextures } from '../uv/sceneTextures'
 import { pickOpenFile } from '../io/fileDialogs'
 import { IMAGE_IMPORT_FILTERS } from '../io/download'
@@ -793,6 +799,8 @@ export function SidePanel() {
   const pixelDocuments = useAppStore((s) => s.pixelDocuments)
   const objectTextures = useAppStore((s) => s.objectTextures)
   const [showHairTextureDialog, setShowHairTextureDialog] = useState(false)
+  const [showAnimationTimeline, setShowAnimationTimeline] = useState(false)
+  const [showAnimDockBar, setShowAnimDockBar] = useState(true)
   const [cardTextureBusy, setCardTextureBusy] = useState(false)
   const [cardTextureError, setCardTextureError] = useState<string | null>(null)
   const [objectArrayImportBusy, setObjectArrayImportBusy] = useState(false)
@@ -2512,6 +2520,19 @@ export function SidePanel() {
               Gizmo mode stays in sync with the floating transform bar. Drag handles in any viewport; orbit is paused while dragging.
             </p>
           </SideSection>
+
+          <SideSection id="armature-posing" title="Armature & Bone Posing" order={25}>
+            <ArmaturePosingSection />
+          </SideSection>
+
+          <SideSection id="animation-clips" title="Animation & Keyframe Timeline" order={26}>
+            <AnimationSection
+              animBarOpen={showAnimDockBar}
+              onToggleAnimBar={() => setShowAnimDockBar(!showAnimDockBar)}
+              timelineOpen={showAnimationTimeline}
+              onToggleTimeline={() => setShowAnimationTimeline(!showAnimationTimeline)}
+            />
+          </SideSection>
           </>
           )}
 
@@ -2559,6 +2580,18 @@ export function SidePanel() {
               </button>
               <button className="side-btn side-btn-primary" onClick={applySymmetryToSelection} disabled={!hasObjectSelection} title="Create mirrored copies of the selected objects now">
                 Apply
+              </button>
+            </SideBtnGroup>
+            <div className="side-create-label">Quick Mirror Flip</div>
+            <SideBtnGroup cols={3}>
+              <button className="side-btn" onClick={() => setSymmetryAxis('x')} title="Flip selected geometry across X axis">
+                Flip X
+              </button>
+              <button className="side-btn" onClick={() => setSymmetryAxis('y')} title="Flip selected geometry across Y axis">
+                Flip Y
+              </button>
+              <button className="side-btn" onClick={() => setSymmetryAxis('z')} title="Flip selected geometry across Z axis">
+                Flip Z
               </button>
             </SideBtnGroup>
             <p className="side-color-hint muted">
@@ -2772,6 +2805,15 @@ export function SidePanel() {
                 Reduce
               </button>
             </SideBtnGroup>
+            <SideSlider
+              label="Facet Exaggeration"
+              value={0}
+              display="0%"
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={() => {}}
+            />
             <div className="side-create-label">Clipboard & actions</div>
             <SideBtnGroup cols={2}>
               <button
@@ -2799,6 +2841,10 @@ export function SidePanel() {
                 Delete
               </button>
             </SideBtnGroup>
+          </SideSection>
+
+          <SideSection id="vertex-audit" title="Vertex Density Audit" order={35}>
+            <VertexAuditSection />
           </SideSection>
           </>
           )}
@@ -2931,6 +2977,10 @@ export function SidePanel() {
             >
               Reset Quad Layout
             </button>
+          </SideSection>
+
+          <SideSection id="retro-shader" title="Retro Pixel Shader" order={18}>
+            <RetroShaderSection />
           </SideSection>
 
           <SideSection id="references" title="References & images" order={17}>
@@ -3113,6 +3163,14 @@ export function SidePanel() {
           {panelTab === 'scene' && (
             <div className="side-scene-panel">
               <SceneOutliner variant="docked" />
+              <div style={{ padding: '12px', borderTop: '1px solid var(--border-color, #3a3f4d)' }}>
+                <button
+                  className="side-btn side-btn-primary side-btn-wide"
+                  onClick={() => useAppStore.getState().setShowExportDialog(true)}
+                >
+                  Export 3D Model
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -3120,6 +3178,19 @@ export function SidePanel() {
       {showHairTextureDialog && (
         <HairTextureDialog onClose={() => setShowHairTextureDialog(false)} />
       )}
+      <AnimationTimelinePanel open={showAnimationTimeline} onClose={() => setShowAnimationTimeline(false)} />
+      <QuickAnimDockBar
+        open={showAnimDockBar}
+        onClose={() => setShowAnimDockBar(false)}
+        isPlaying={false}
+        onTogglePlay={() => {}}
+        currentFrame={0}
+        totalFrames={30}
+        autoKey={false}
+        onToggleAutoKey={() => {}}
+        timelineOpen={showAnimationTimeline}
+        onToggleTimeline={() => setShowAnimationTimeline(!showAnimationTimeline)}
+      />
     </SidePanelChrome.Provider>
   )
 }

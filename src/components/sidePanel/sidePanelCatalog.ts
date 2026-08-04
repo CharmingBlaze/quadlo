@@ -156,6 +156,24 @@ export const SIDE_PANEL_SECTIONS: readonly SidePanelSectionMeta[] = [
     keywords: ['gizmo', 'handle', 'axis', 'local', 'world', 'pivot', 'origin', 'size'],
   },
   {
+    id: 'armature-posing',
+    title: 'Armature & Bone Posing',
+    tab: 'edit',
+    subTab: 'select-transform',
+    icon: 'transform',
+    blurb: 'Hierarchical bone joint creation, parenting, and low-poly posing',
+    keywords: ['armature', 'bone', 'joint', 'pose', 'posing', 'skinning', 'character', 'fk', 'rigging'],
+  },
+  {
+    id: 'animation-clips',
+    title: 'Animation & Keyframe Timeline',
+    tab: 'edit',
+    subTab: 'select-transform',
+    icon: 'transform',
+    blurb: 'Multi-layer keyframe animation timeline for game clips (Idle, Walk, Attack)',
+    keywords: ['animation', 'clip', 'timeline', 'keyframe', 'idle', 'walk', 'attack', 'game', 'layer', 'scrubber'],
+  },
+  {
     id: 'symmetry',
     title: 'Symmetry',
     tab: 'edit',
@@ -201,6 +219,15 @@ export const SIDE_PANEL_SECTIONS: readonly SidePanelSectionMeta[] = [
       'poly budget', 'lock topology', 'rename',
     ],
   },
+  {
+    id: 'vertex-audit',
+    title: 'Vertex Density Audit',
+    tab: 'edit',
+    subTab: 'mesh',
+    icon: 'topology',
+    blurb: 'Heatmap metrics, vertex density inspector, and budget warnings',
+    keywords: ['density', 'heatmap', 'audit', 'vertices', 'budget', 'warning', 'inspection'],
+  },
 
   {
     id: 'appearance',
@@ -209,6 +236,14 @@ export const SIDE_PANEL_SECTIONS: readonly SidePanelSectionMeta[] = [
     icon: 'appearance',
     blurb: 'Object colour, palette and materials',
     keywords: ['color', 'colour', 'palette', 'swatch', 'material', 'texture', 'tint'],
+  },
+  {
+    id: 'retro-shader',
+    title: 'Retro Pixel Shader',
+    tab: 'look',
+    icon: 'display',
+    blurb: 'Pixelation, Bayer dithering, retro color palettes, and outlines',
+    keywords: ['pixel', 'pixelation', 'retro', 'dither', 'dithering', 'gameboy', 'palette', 'outline', 'shader'],
   },
   {
     id: 'display',

@@ -4661,6 +4661,16 @@ html[data-theme-contrast='light'] .theme-select {
   background: var(--bg-hover);
   color: var(--text-muted);
   font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 1.5px !important;
+  background: var(--accent);
 }
 
 .tool-badge.draw { color: var(--accent); }
