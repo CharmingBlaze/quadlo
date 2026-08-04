@@ -287,10 +287,48 @@ export const AnimationTimelinePanel: React.FC<AnimationTimelinePanelProps> = ({
 
         <span style={{ color: 'var(--text-muted, #8a8f9e)', margin: '0 4px' }}>|</span>
 
-        {/* Keyframe Actions */}
+        {/* Keyframe Actions & Easing Selector */}
         <button onClick={handleAddKeyframe} className="side-btn side-btn-primary" style={{ padding: '3px 8px', height: '24px' }}>
           + Keyframe
         </button>
+
+        <span style={{ color: 'var(--text-muted, #8a8f9e)', margin: '0 2px' }}>Curve:</span>
+        <select
+          defaultValue="linear"
+          onChange={(e) => {
+            const easingVal = e.target.value as any
+            if (!activeClip || !selectedLayerId) return
+            const updatedClips = clips.map((c) => {
+              if (c.id !== activeClip.id) return c
+              const newLayers = c.layers.map((l) => {
+                if (l.id !== selectedLayerId) return l
+                const kfs = l.keyframes.map((k) =>
+                  k.frame === currentFrame ? { ...k, easing: easingVal } : k
+                )
+                return { ...l, keyframes: kfs }
+              })
+              return { ...c, layers: newLayers }
+            })
+            setClips(updatedClips)
+          }}
+          style={{
+            padding: '3px 6px',
+            backgroundColor: 'var(--bg-input, #2a2d34)',
+            border: '1px solid var(--border, #3a3f4d)',
+            borderRadius: 'var(--radius, 4px)',
+            color: 'var(--text, #fff)',
+            fontSize: '11px',
+            height: '24px',
+          }}
+          title="Set easing interpolation curve for selected keyframe"
+        >
+          <option value="linear">Linear</option>
+          <option value="ease-in">Ease-In</option>
+          <option value="ease-out">Ease-Out</option>
+          <option value="ease-in-out">Ease-In-Out</option>
+          <option value="bounce">Bounce</option>
+          <option value="elastic">Elastic</option>
+        </select>
 
         {/* Current Frame Counter */}
         <span style={{ marginLeft: 'auto', fontWeight: 600, color: 'var(--accent, #00e5ff)' }}>

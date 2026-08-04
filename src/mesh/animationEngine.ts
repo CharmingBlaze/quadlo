@@ -1,10 +1,12 @@
 import { type Vec3, lerp3 } from '../utils/math'
 import type { SkeletonRig, BoneJoint } from './armaturePosing'
+import { type KeyframeEasing, evaluateEasing } from './animationEasing'
 
 export interface KeyframeData {
   frame: number // e.g. 0, 10, 20
   rotationEuler: Vec3 // Pitch, Yaw, Roll
   positionOffset?: Vec3
+  easing?: KeyframeEasing
 }
 
 export interface AnimationTrackLayer {
@@ -62,7 +64,8 @@ export function interpolateTrackLayerPose(
   }
 
   const span = next.frame - prev.frame || 1
-  const alpha = Math.max(0, Math.min(1, (frame - prev.frame) / span))
+  const rawAlpha = Math.max(0, Math.min(1, (frame - prev.frame) / span))
+  const alpha = evaluateEasing(rawAlpha, prev.easing ?? 'linear')
 
   const rotInterp = lerp3(prev.rotationEuler, next.rotationEuler, alpha)
   const posPrev = prev.positionOffset ?? { x: 0, y: 0, z: 0 }

@@ -59,6 +59,9 @@ import {
 } from './sidePanel/sidePanelCatalog'
 import { useSidePanelPrefs, type SidePanelPrefsApi } from './sidePanel/useSidePanelPrefs'
 import { PANEL_DENSITIES } from './sidePanel/sidePanelPrefs'
+import { exportSkeletalAnimationGLTF } from '../io/gltfAnimationExporter'
+import { SpriteSheetExporterDialog } from './SpriteSheetExporterDialog'
+import { SAMPLE_CLIPS } from './AnimationTimelinePanel'
 
 const MODEL_IMPORT_FILTERS = [
   { name: '3D models', extensions: ['obj', 'glb', 'gltf', 'stl'] },
@@ -801,6 +804,8 @@ export function SidePanel() {
   const [showHairTextureDialog, setShowHairTextureDialog] = useState(false)
   const [showAnimationTimeline, setShowAnimationTimeline] = useState(false)
   const [showAnimDockBar, setShowAnimDockBar] = useState(true)
+  const [showOnionSkinning, setShowOnionSkinning] = useState(false)
+  const [showSpriteSheetExporter, setShowSpriteSheetExporter] = useState(false)
   const [cardTextureBusy, setCardTextureBusy] = useState(false)
   const [cardTextureError, setCardTextureError] = useState<string | null>(null)
   const [objectArrayImportBusy, setObjectArrayImportBusy] = useState(false)
@@ -2531,6 +2536,17 @@ export function SidePanel() {
               onToggleAnimBar={() => setShowAnimDockBar(!showAnimDockBar)}
               timelineOpen={showAnimationTimeline}
               onToggleTimeline={() => setShowAnimationTimeline(!showAnimationTimeline)}
+              onionSkinning={showOnionSkinning}
+              onToggleOnionSkinning={() => setShowOnionSkinning(!showOnionSkinning)}
+              onOpenSpriteSheetExporter={() => setShowSpriteSheetExporter(true)}
+              onExportGLTF={() => {
+                const dummyRig = { joints: [] }
+                const res = exportSkeletalAnimationGLTF(dummyRig, SAMPLE_CLIPS)
+                const a = document.createElement('a')
+                a.href = URL.createObjectURL(res.blob)
+                a.download = 'quadlo_game_animation.gltf'
+                a.click()
+              }}
             />
           </SideSection>
           </>
@@ -3178,6 +3194,7 @@ export function SidePanel() {
       {showHairTextureDialog && (
         <HairTextureDialog onClose={() => setShowHairTextureDialog(false)} />
       )}
+      <SpriteSheetExporterDialog open={showSpriteSheetExporter} onClose={() => setShowSpriteSheetExporter(false)} />
       <AnimationTimelinePanel open={showAnimationTimeline} onClose={() => setShowAnimationTimeline(false)} />
       <QuickAnimDockBar
         open={showAnimDockBar}
